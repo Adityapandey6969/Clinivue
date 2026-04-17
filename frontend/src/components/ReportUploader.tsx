@@ -1,40 +1,21 @@
 import React, { useState, useRef, useCallback } from 'react';
-import { Upload, FileText, Loader2, CheckCircle2, AlertTriangle, XCircle, ArrowDown, ShieldAlert } from 'lucide-react';
+import { Upload, FileText, Loader2, CheckCircle2, AlertTriangle, XCircle, ArrowDown, ShieldAlert, Microscope, ClipboardList } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-type ReportParam = {
-  name: string;
-  value: number;
-  unit: string;
-  status: string;
-  severity: string;
-  reference_range: number[];
-  explanation: string;
+type ReportParam = { name: string; value: number; unit: string; status: string; severity: string; reference_range: number[]; explanation: string; };
+type ReportData = { report_id: string; status: string; parsed_at?: string; confidence?: number; parameters?: ReportParam[]; summary?: string; recommendation?: string; disclaimer?: string; progress_pct?: number; };
+
+const STATUS_CFG: Record<string, { bg: string; text: string; icon: React.ReactNode }> = {
+  high:   { bg: 'bg-red-50',     text: 'text-red-600',     icon: <AlertTriangle size={13} /> },
+  low:    { bg: 'bg-amber-50',   text: 'text-amber-600',   icon: <ArrowDown size={13} /> },
+  normal: { bg: 'bg-emerald-50', text: 'text-emerald-600', icon: <CheckCircle2 size={13} /> },
 };
 
-type ReportData = {
-  report_id: string;
-  status: string;
-  parsed_at?: string;
-  confidence?: number;
-  parameters?: ReportParam[];
-  summary?: string;
-  recommendation?: string;
-  disclaimer?: string;
-  progress_pct?: number;
-};
-
-const STATUS_COLORS: Record<string, { bg: string; text: string; icon: React.ReactNode }> = {
-  high: { bg: 'bg-red-500/15', text: 'text-red-400', icon: <AlertTriangle size={14} /> },
-  low: { bg: 'bg-amber-500/15', text: 'text-amber-400', icon: <ArrowDown size={14} /> },
-  normal: { bg: 'bg-emerald-500/15', text: 'text-emerald-400', icon: <CheckCircle2 size={14} /> },
-};
-
-const SEVERITY_BADGE: Record<string, string> = {
-  high: 'bg-red-500/20 text-red-300 border-red-500/30',
-  moderate: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
-  low: 'bg-yellow-500/15 text-yellow-300 border-yellow-500/20',
-  normal: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/20',
+const SEV_STYLE: Record<string, string> = {
+  high:     'bg-red-50 text-red-700 border-red-200',
+  moderate: 'bg-amber-50 text-amber-700 border-amber-200',
+  low:      'bg-yellow-50 text-yellow-700 border-yellow-200',
+  normal:   'bg-emerald-50 text-emerald-700 border-emerald-200',
 };
 
 export default function ReportUploader() {
@@ -42,265 +23,154 @@ export default function ReportUploader() {
   const [uploading, setUploading] = useState(false);
   const [reportData, setReportData] = useState<ReportData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [fileName, setFileName] = useState<string>('');
+  const [fileName, setFileName] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const pollReport = useCallback(async (reportId: string) => {
-    const maxAttempts = 30;
     let attempt = 0;
-
     const poll = async () => {
       attempt++;
       try {
         const res = await fetch(`http://localhost:8000/api/v1/report/${reportId}`);
         const data = await res.json();
-
-        if (data.status === 'complete' || data.status === 'failed') {
-          setReportData(data);
-          setUploading(false);
-          return;
-        }
-
+        if (data.status === 'complete' || data.status === 'failed') { setReportData(data); setUploading(false); return; }
         setReportData(data);
-
-        if (attempt < maxAttempts) {
-          setTimeout(poll, 1000);
-        } else {
-          setError('Report processing timed out. Please try again.');
-          setUploading(false);
-        }
-      } catch (err) {
-        setError('Failed to check report status.');
-        setUploading(false);
-      }
+        if (attempt < 30) setTimeout(poll, 1000); else { setError('Timed out.'); setUploading(false); }
+      } catch { setError('Connection lost.'); setUploading(false); }
     };
-
     poll();
   }, []);
 
   const handleUpload = async (file: File) => {
-    setError(null);
-    setReportData(null);
-    setFileName(file.name);
-    setUploading(true);
-
+    setError(null); setReportData(null); setFileName(file.name); setUploading(true);
     const formData = new FormData();
     formData.append('file', file);
-
     try {
-      const res = await fetch('http://localhost:8000/api/v1/report/upload', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.detail || 'Upload failed');
-      }
-
+      const res = await fetch('http://localhost:8000/api/v1/report/upload', { method: 'POST', body: formData });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Upload failed'); }
       const data = await res.json();
       setReportData({ report_id: data.report_id, status: 'processing', progress_pct: 5 });
       pollReport(data.report_id);
-    } catch (err: any) {
-      setError(err.message || 'Upload failed. Please try again.');
-      setUploading(false);
-    }
-  };
-
-  const onDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragActive(false);
-    if (e.dataTransfer.files?.[0]) {
-      handleUpload(e.dataTransfer.files[0]);
-    }
-  };
-
-  const onDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragActive(true);
-  };
-
-  const onDragLeave = () => setDragActive(false);
-
-  const confidenceColor = (score: number) => {
-    if (score >= 0.85) return 'text-emerald-400';
-    if (score >= 0.60) return 'text-amber-400';
-    return 'text-red-400';
-  };
-
-  const confidenceBar = (score: number) => {
-    if (score >= 0.85) return 'bg-emerald-500';
-    if (score >= 0.60) return 'bg-amber-500';
-    return 'bg-red-500';
+    } catch (err: any) { setError(err.message); setUploading(false); }
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-800/40 rounded-3xl border border-white/5 shadow-2xl overflow-hidden">
+    <div className="flex flex-col h-full card rounded-3xl overflow-hidden">
       {/* Header */}
-      <div className="px-6 py-5 border-b border-slate-700/50 bg-slate-800/60">
-        <h2 className="text-lg font-semibold text-slate-100 flex items-center">
-          <FileText className="w-5 h-5 text-teal-400 mr-3" />
-          Lab Report Analyzer
-        </h2>
-        <p className="text-xs text-slate-400 mt-1">Upload a PDF or image of your medical report for AI-powered analysis</p>
+      <div className="px-6 py-4 border-b border-slate-100 flex items-center space-x-3 flex-shrink-0 bg-gradient-to-r from-violet-50/80 to-white">
+        <div className="p-2.5 bg-gradient-to-br from-violet-500 to-purple-500 rounded-xl shadow-sm shadow-violet-200">
+          <Microscope size={16} className="text-white" />
+        </div>
+        <div>
+          <h2 className="text-sm font-bold text-slate-800">Lab Report Analyzer</h2>
+          <p className="text-[11px] text-slate-400">Upload a blood test, CBC, or any lab report</p>
+        </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6 space-y-6">
-        {/* Drop Zone */}
+      <div className="flex-1 overflow-y-auto p-5 space-y-5 min-h-0">
+        {/* Upload Zone */}
         {!reportData?.parameters && (
           <div
-            onDrop={onDrop}
-            onDragOver={onDragOver}
-            onDragLeave={onDragLeave}
+            onDrop={(e) => { e.preventDefault(); setDragActive(false); e.dataTransfer.files?.[0] && handleUpload(e.dataTransfer.files[0]); }}
+            onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+            onDragLeave={() => setDragActive(false)}
             onClick={() => fileInputRef.current?.click()}
-            className={`relative border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all duration-300 ${
-              dragActive
-                ? 'border-teal-400 bg-teal-500/10 scale-[1.02]'
-                : 'border-slate-600 bg-slate-800/30 hover:border-teal-500/50 hover:bg-slate-800/50'
+            className={`border-2 border-dashed rounded-2xl p-14 text-center cursor-pointer transition-all duration-200 group ${
+              dragActive ? 'border-teal-400 bg-teal-50/40 scale-[1.01]' : 'border-slate-200 hover:border-teal-300 hover:bg-teal-50/20'
             }`}
           >
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".pdf,.jpg,.jpeg,.png"
-              className="hidden"
-              onChange={(e) => e.target.files?.[0] && handleUpload(e.target.files[0])}
-            />
+            <input ref={fileInputRef} type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden"
+              onChange={(e) => e.target.files?.[0] && handleUpload(e.target.files[0])} />
             <div className="flex flex-col items-center space-y-4">
-              <div className={`p-4 rounded-2xl transition-colors ${dragActive ? 'bg-teal-500/20' : 'bg-slate-700/50'}`}>
-                <Upload className={`w-8 h-8 ${dragActive ? 'text-teal-400' : 'text-slate-400'}`} />
+              <div className={`p-5 rounded-2xl transition-all ${dragActive ? 'bg-teal-100 scale-105' : 'bg-slate-50 group-hover:bg-teal-50'}`}>
+                <Upload className={`w-8 h-8 ${dragActive ? 'text-teal-600' : 'text-slate-400 group-hover:text-teal-500'} transition-colors`} />
               </div>
               <div>
-                <p className="text-slate-200 font-medium">
-                  {dragActive ? 'Drop your report here' : 'Drag & drop your lab report'}
-                </p>
-                <p className="text-slate-500 text-sm mt-1">PDF, JPEG, PNG — up to 20 MB</p>
+                <p className="text-slate-700 font-bold text-sm">{dragActive ? 'Drop to analyze' : 'Upload Your Lab Report'}</p>
+                <p className="text-slate-400 text-xs mt-1">PDF, JPEG, or PNG · Max 20 MB</p>
               </div>
             </div>
           </div>
         )}
 
-        {/* Upload Progress */}
+        {/* Progress */}
         <AnimatePresence>
           {uploading && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="bg-slate-800/60 rounded-2xl p-5 border border-slate-700/50"
-            >
+            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+              className="bg-white rounded-xl p-5 border border-slate-100 shadow-sm">
               <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center space-x-3">
-                  <Loader2 className="w-5 h-5 text-teal-400 animate-spin" />
-                  <span className="text-sm font-medium text-slate-200">Analyzing {fileName}...</span>
+                <div className="flex items-center space-x-2">
+                  <Loader2 className="w-4 h-4 text-teal-500 animate-spin" />
+                  <span className="text-sm font-semibold text-slate-700">Analyzing {fileName}</span>
                 </div>
-                <span className="text-xs text-slate-400">{reportData?.progress_pct || 0}%</span>
+                <span className="text-xs font-bold text-teal-600">{reportData?.progress_pct || 0}%</span>
               </div>
-              <div className="w-full bg-slate-700 rounded-full h-2 overflow-hidden">
-                <motion.div
-                  className="h-full bg-gradient-to-r from-teal-500 to-emerald-400 rounded-full"
-                  initial={{ width: '0%' }}
-                  animate={{ width: `${reportData?.progress_pct || 5}%` }}
-                  transition={{ duration: 0.5 }}
-                />
+              <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                <motion.div className="h-full bg-gradient-to-r from-teal-400 to-emerald-400 rounded-full"
+                  initial={{ width: '0%' }} animate={{ width: `${reportData?.progress_pct || 5}%` }} transition={{ duration: 0.5 }} />
               </div>
-              <p className="text-xs text-slate-500 mt-2">Running OCR → parsing → reference comparison → flagging...</p>
+              <div className="flex items-center justify-between mt-3 px-1">
+                {['OCR', 'Parse', 'Compare', 'Flag'].map((s, i) => (
+                  <span key={s} className={`text-[10px] font-bold uppercase tracking-wide ${(reportData?.progress_pct || 0) > (i + 1) * 20 ? 'text-teal-600' : 'text-slate-300'}`}>{s}</span>
+                ))}
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Error */}
         {error && (
-          <div className="bg-red-500/10 border border-red-500/20 rounded-2xl p-4 flex items-start space-x-3">
-            <XCircle className="w-5 h-5 text-red-400 mt-0.5 shrink-0" />
-            <div>
-              <p className="text-red-300 text-sm font-medium">Upload Error</p>
-              <p className="text-red-400/80 text-xs mt-1">{error}</p>
-            </div>
+          <div className="rounded-xl p-4 bg-red-50 border border-red-100 flex items-center space-x-3">
+            <XCircle size={18} className="text-red-500 shrink-0" />
+            <p className="text-sm text-red-700">{error}</p>
           </div>
         )}
 
         {/* Results */}
         {reportData?.status === 'complete' && reportData.parameters && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-5"
-          >
-            {/* Confidence Badge */}
+          <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
-                <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-                <span className="text-sm font-medium text-slate-200">Analysis Complete</span>
+                <CheckCircle2 size={16} className="text-emerald-500" />
+                <span className="text-sm font-bold text-slate-800">Analysis Complete</span>
               </div>
               {reportData.confidence !== undefined && (
-                <div className="flex items-center space-x-2">
-                  <span className="text-xs text-slate-400">Confidence</span>
-                  <div className="flex items-center space-x-2">
-                    <div className="w-16 bg-slate-700 rounded-full h-1.5 overflow-hidden">
-                      <div
-                        className={`h-full rounded-full ${confidenceBar(reportData.confidence)}`}
-                        style={{ width: `${reportData.confidence * 100}%` }}
-                      />
-                    </div>
-                    <span className={`text-sm font-bold ${confidenceColor(reportData.confidence)}`}>
-                      {(reportData.confidence * 100).toFixed(0)}%
-                    </span>
-                  </div>
-                </div>
+                <span className="text-xs font-bold text-teal-700 bg-teal-50 px-3 py-1 rounded-full border border-teal-100">
+                  {(reportData.confidence * 100).toFixed(0)}% confidence
+                </span>
               )}
             </div>
 
-            {/* Summary */}
             {reportData.summary && (
-              <div className="bg-slate-800/60 rounded-2xl p-4 border border-slate-700/50">
-                <p className="text-sm text-slate-200 leading-relaxed">{reportData.summary}</p>
+              <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                <p className="text-sm text-slate-700 leading-relaxed">📋 {reportData.summary}</p>
               </div>
             )}
 
-            {/* Parameters Table */}
-            <div className="bg-slate-800/60 rounded-2xl border border-slate-700/50 overflow-hidden">
-              <div className="px-5 py-3 bg-slate-800/80 border-b border-slate-700/50">
-                <h3 className="text-sm font-semibold text-slate-200">Extracted Parameters</h3>
+            <div className="rounded-xl overflow-hidden border border-slate-100 bg-white">
+              <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 flex items-center space-x-2">
+                <ClipboardList size={14} className="text-slate-500" />
+                <h3 className="text-[13px] font-bold text-slate-700">{reportData.parameters.length} Parameters Found</h3>
               </div>
-              <div className="divide-y divide-slate-700/30">
-                {reportData.parameters.map((param, idx) => {
-                  const statusStyle = STATUS_COLORS[param.status] || STATUS_COLORS.normal;
-                  const severityStyle = SEVERITY_BADGE[param.severity] || SEVERITY_BADGE.normal;
-
+              <div className="divide-y divide-slate-50">
+                {reportData.parameters.map((p, idx) => {
+                  const cfg = STATUS_CFG[p.status] || STATUS_CFG.normal;
+                  const sev = SEV_STYLE[p.severity] || SEV_STYLE.normal;
                   return (
-                    <motion.div
-                      key={idx}
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: idx * 0.08 }}
-                      className="px-5 py-4 hover:bg-slate-700/20 transition-colors"
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center space-x-3">
-                          <div className={`p-1.5 rounded-lg ${statusStyle.bg}`}>
-                            <span className={statusStyle.text}>{statusStyle.icon}</span>
-                          </div>
-                          <span className="font-medium text-slate-100 text-sm">{param.name}</span>
+                    <motion.div key={idx} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: idx * 0.05 }}
+                      className="px-4 py-3 hover:bg-slate-50/50 transition-colors">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2.5">
+                          <div className={`p-1.5 rounded-lg ${cfg.bg}`}><span className={cfg.text}>{cfg.icon}</span></div>
+                          <span className="text-[13px] font-semibold text-slate-800">{p.name}</span>
                         </div>
-                        <div className="flex items-center space-x-3">
-                          <span className="text-slate-100 font-bold text-sm">
-                            {param.value} <span className="text-slate-400 font-normal text-xs">{param.unit}</span>
-                          </span>
-                          <span className={`text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full border ${severityStyle}`}>
-                            {param.severity}
-                          </span>
+                        <div className="flex items-center space-x-2.5">
+                          <span className="text-[13px] font-bold text-slate-800">{p.value} <span className="text-slate-400 font-normal text-[11px]">{p.unit}</span></span>
+                          <span className={`text-[9px] uppercase tracking-widest font-bold px-2 py-0.5 rounded-full border ${sev}`}>{p.severity}</span>
                         </div>
                       </div>
-                      <div className="ml-10">
-                        <p className="text-xs text-slate-500 mb-1">
-                          Ref: {param.reference_range[0]} – {param.reference_range[1]} {param.unit}
-                        </p>
-                        {param.status !== 'normal' && (
-                          <p className="text-xs text-slate-400 bg-slate-800/60 rounded-lg p-2 mt-1 leading-relaxed">
-                            {param.explanation}
-                          </p>
-                        )}
+                      <div className="ml-9 mt-1">
+                        <span className="text-[11px] text-slate-400">Ref: {p.reference_range[0]} – {p.reference_range[1]} {p.unit}</span>
+                        {p.status !== 'normal' && <p className="text-[12px] text-slate-600 mt-1 leading-relaxed">{p.explanation}</p>}
                       </div>
                     </motion.div>
                   );
@@ -308,54 +178,20 @@ export default function ReportUploader() {
               </div>
             </div>
 
-            {/* Recommendation */}
             {reportData.recommendation && (
-              <div className="bg-gradient-to-br from-slate-800/80 to-slate-800/40 rounded-2xl p-5 border border-teal-500/20">
-                <h3 className="text-sm font-semibold text-teal-400 mb-3 flex items-center">
-                  <ShieldAlert size={16} className="mr-2" />
-                  Safe Guidance
-                </h3>
-                <div className="text-sm text-slate-300 leading-relaxed whitespace-pre-line">
-                  {reportData.recommendation}
-                </div>
+              <div className="rounded-xl p-4 bg-teal-50/50 border border-teal-100">
+                <h3 className="text-[13px] font-bold text-teal-700 mb-2 flex items-center space-x-2"><ShieldAlert size={14} /><span>Guidance</span></h3>
+                <div className="text-[13px] text-slate-600 leading-relaxed whitespace-pre-line">{reportData.recommendation}</div>
               </div>
             )}
 
-            {/* Disclaimer */}
-            <div className="bg-amber-500/5 border border-amber-500/15 rounded-xl p-3 flex items-start space-x-2">
-              <ShieldAlert size={14} className="text-amber-400 mt-0.5 shrink-0" />
-              <p className="text-[11px] text-amber-300/80 leading-relaxed">
-                {reportData.disclaimer}
-              </p>
-            </div>
+            <p className="text-center text-[10px] text-slate-400 py-1">⚕️ {reportData.disclaimer}</p>
 
-            {/* Upload Another */}
-            <button
-              onClick={() => {
-                setReportData(null);
-                setError(null);
-                setFileName('');
-              }}
-              className="w-full py-3 bg-slate-800/60 hover:bg-slate-700/60 border border-slate-700/50 rounded-xl text-sm text-slate-300 hover:text-teal-400 transition-colors font-medium"
-            >
+            <button onClick={() => { setReportData(null); setError(null); setFileName(''); }}
+              className="w-full py-3 bg-slate-50 hover:bg-teal-50 border border-slate-200 hover:border-teal-200 rounded-xl text-sm text-slate-600 hover:text-teal-700 transition-all font-semibold">
               Upload Another Report
             </button>
           </motion.div>
-        )}
-
-        {/* Failed */}
-        {reportData?.status === 'failed' && (
-          <div className="bg-red-500/10 border border-red-500/20 rounded-2xl p-5 text-center">
-            <XCircle className="w-8 h-8 text-red-400 mx-auto mb-3" />
-            <p className="text-red-300 font-medium">Analysis Failed</p>
-            <p className="text-red-400/70 text-xs mt-1">{reportData.summary}</p>
-            <button
-              onClick={() => { setReportData(null); setError(null); }}
-              className="mt-4 px-6 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm text-slate-200 transition-colors"
-            >
-              Try Again
-            </button>
-          </div>
         )}
       </div>
     </div>

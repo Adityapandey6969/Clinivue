@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ShieldCheck, IndianRupee, MapPin, Building2, ChevronRight, Activity, AlertCircle } from 'lucide-react';
+import { ShieldCheck, IndianRupee, MapPin, Building2, AlertTriangle, Star } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export default function InsightsPanel({ contextData }: { contextData: any }) {
@@ -9,142 +9,157 @@ export default function InsightsPanel({ contextData }: { contextData: any }) {
 
   useEffect(() => {
     if (!contextData?.procedure || !contextData?.location) return;
-
     const fetchData = async () => {
       setLoading(true);
       try {
         const [provRes, costRes] = await Promise.all([
-          fetch('http://localhost:8000/api/v1/providers/', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              procedure: contextData.procedure,
-              location: contextData.location,
-              budget_inr: contextData.budget_inr
-            })
-          }),
-          fetch('http://localhost:8000/api/v1/cost-estimate/', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              procedure: contextData.procedure,
-              city: contextData.location,
-              age: contextData.age,
-              comorbidities: contextData.comorbidities
-            })
-          })
+          fetch('http://localhost:8000/api/v1/providers/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ procedure: contextData.procedure, location: contextData.location, budget_inr: contextData.budget_inr }) }),
+          fetch('http://localhost:8000/api/v1/cost-estimate/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ procedure: contextData.procedure, city: contextData.location, age: contextData.age, comorbidities: contextData.comorbidities }) })
         ]);
-
         const provData = await provRes.json();
         const costEstimate = await costRes.json();
-
         setProviders(provData.providers || []);
         setCostData(costEstimate);
-      } catch (err) {
-        console.error('Failed to fetch insights', err);
-      } finally {
-        setLoading(false);
-      }
+      } catch (err) { console.error(err); }
+      finally { setLoading(false); }
     };
-
     fetchData();
   }, [contextData]);
 
+  const formatINR = (val: number) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(val);
+
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-slate-400">
-        <Activity className="w-8 h-8 animate-spin mb-4 text-teal-500" />
-        <p>Crunching clinical pathways & cost data...</p>
+      <div className="flex flex-col items-center justify-center h-full space-y-3">
+        <div className="w-10 h-10 rounded-full border-3 border-teal-100 border-t-teal-500 animate-spin"></div>
+        <p className="text-sm text-slate-400 font-medium">Finding best options for you...</p>
       </div>
     );
   }
 
-  if (!providers.length && !costData) {
-    return null;
-  }
+  if (!providers.length && !costData) return null;
 
-  const formatINR = (val: number) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(val);
+  const tierStyle: Record<string, string> = {
+    budget:  'bg-green-50 text-green-700 border-green-200',
+    mid:     'bg-blue-50 text-blue-700 border-blue-200',
+    premium: 'bg-amber-50 text-amber-700 border-amber-200',
+  };
 
   return (
-    <div className="space-y-6 text-slate-200 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="space-y-5 animate-slide-up">
+      {/* ─── Cost Card ─── */}
       {costData && (
-        <div className="bg-slate-800/60 rounded-2xl p-5 border border-slate-700/50 shadow-lg">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-lg flex items-center">
-              <IndianRupee className="w-5 h-5 text-emerald-400 mr-2" />
-              Cost Estimate
-            </h3>
-            <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 text-xs rounded-full border border-emerald-500/20 flex items-center font-medium">
-              Target Scope
-            </span>
+        <div className="rounded-2xl overflow-hidden border border-slate-100 bg-white">
+          <div className="bg-gradient-to-r from-teal-50 to-emerald-50 px-5 py-4 border-b border-teal-100/50">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-white rounded-xl border border-teal-100 shadow-sm">
+                  <IndianRupee size={16} className="text-teal-600" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">Estimated Cost</h3>
+                  <p className="text-[11px] text-teal-700 capitalize">{contextData.procedure}</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-[10px] text-slate-400 font-semibold uppercase">Confidence</p>
+                <p className="text-sm font-bold text-teal-600">{((costData.confidence?.confidence_score || 0.74) * 100).toFixed(0)}%</p>
+              </div>
+            </div>
           </div>
-          
-          <div className="bg-slate-900/50 rounded-xl p-4 mb-4 text-center">
-            <p className="text-sm text-slate-400 mb-1">Total Expected Range</p>
-            <p className="text-2xl font-bold text-emerald-300">
-              {formatINR(costData.total_range_inr.min)} - {formatINR(costData.total_range_inr.max)}
+
+          {/* Total */}
+          <div className="px-5 py-4 bg-white border-b border-slate-50">
+            <p className="text-[11px] text-slate-400 font-semibold uppercase mb-1">Total Range</p>
+            <p className="text-xl font-extrabold text-slate-800">
+              {formatINR(costData.total_range_inr.min)}
+              <span className="text-slate-300 mx-2 font-normal">—</span>
+              {formatINR(costData.total_range_inr.max)}
             </p>
           </div>
 
-          <div className="space-y-3">
+          {/* Breakdown */}
+          <div className="divide-y divide-slate-50">
             {costData.components.map((c: any, i: number) => (
-              <div key={i} className="flex justify-between items-center text-sm border-b border-slate-700/50 pb-2 last:border-0 last:pb-0">
-                <span className="text-slate-300">{c.name}</span>
-                <span className="font-medium">{formatINR(c.min_inr)} - {formatINR(c.max_inr)}</span>
+              <div key={i} className="px-5 py-2.5 flex items-center justify-between hover:bg-slate-50/50 transition-colors">
+                <div className="flex items-center space-x-2.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-teal-400"></span>
+                  <span className="text-[13px] text-slate-600">{c.name}</span>
+                </div>
+                <span className="text-[13px] font-semibold text-slate-700">{formatINR(c.min_inr)} – {formatINR(c.max_inr)}</span>
               </div>
             ))}
           </div>
-          
-          {costData.confidence.risk_flags?.length > 0 && (
-            <div className="mt-4 p-3 bg-amber-500/10 rounded-lg flex items-start text-xs text-amber-200">
-              <AlertCircle size={14} className="mt-0.5 mr-2 shrink-0 text-amber-400" />
-              <p>Assumption: {costData.confidence.assumptions[0]}</p>
+
+          {costData.confidence?.assumptions?.length > 0 && (
+            <div className="px-5 py-3 bg-amber-50/50 border-t border-amber-100/50 flex items-start space-x-2">
+              <AlertTriangle size={13} className="text-amber-500 mt-0.5 shrink-0" />
+              <p className="text-[11px] text-amber-700 leading-relaxed">{costData.confidence.assumptions.join(' · ')}</p>
             </div>
           )}
         </div>
       )}
 
+      {/* ─── Providers ─── */}
       {providers.length > 0 && (
-        <div className="bg-slate-800/60 rounded-2xl p-5 border border-slate-700/50 shadow-lg">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-lg flex items-center">
-              <Building2 className="w-5 h-5 text-teal-400 mr-2" />
-              Top Providers
-            </h3>
-            <span className="text-xs text-slate-400 flex items-center bg-slate-800 px-2 py-1 rounded border border-slate-700">
-              <MapPin size={12} className="mr-1" /> {providers[0].city}
-            </span>
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center space-x-2.5">
+              <div className="p-2 bg-indigo-50 rounded-xl border border-indigo-100">
+                <Building2 size={16} className="text-indigo-500" />
+              </div>
+              <h3 className="text-sm font-bold text-slate-800">Recommended Hospitals</h3>
+            </div>
+            <div className="flex items-center space-x-1 text-[11px] text-slate-400 bg-slate-50 px-2.5 py-1 rounded-full border border-slate-100">
+              <MapPin size={11} />
+              <span>{providers[0]?.city}</span>
+            </div>
           </div>
 
-          <div className="space-y-4">
-            {providers.slice(0, 3).map((provider: any) => (
-              <motion.div key={provider.hospital_id} whileHover={{ scale: 1.01 }} className="bg-slate-900/40 p-4 rounded-xl border border-slate-700/50 hover:border-teal-500/30 transition-colors cursor-pointer group">
-                <div className="flex justify-between items-start mb-2">
-                  <div>
-                    <h4 className="font-semibold text-slate-100 flex items-center">
-                      {provider.name}
-                      {provider.nabh_accredited && <ShieldCheck size={14} className="ml-2 text-blue-400" title="NABH Accredited" />}
-                    </h4>
-                    <div className="flex items-center space-x-2 text-xs text-slate-400 mt-1">
-                      <span className="capitalize">{provider.price_tier} Tier</span>
-                      <span>•</span>
-                      <span>{provider.score_breakdown.distance_km.toFixed(1)} km away</span>
+          <div className="space-y-3">
+            {providers.slice(0, 3).map((p: any, i: number) => (
+              <motion.div
+                key={p.hospital_id}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.1 }}
+                className="p-4 bg-white rounded-xl border border-slate-100 hover:border-teal-200 hover:shadow-sm transition-all cursor-pointer group"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center space-x-2 mb-1.5">
+                      <span className="w-6 h-6 rounded-full bg-teal-50 border border-teal-200 flex items-center justify-center text-[11px] font-bold text-teal-700">
+                        {p.rank}
+                      </span>
+                      <h4 className="text-[13px] font-bold text-slate-800 group-hover:text-teal-700 transition-colors">{p.name}</h4>
+                      {p.nabh_accredited && (
+                        <span className="flex items-center space-x-1 px-1.5 py-0.5 bg-blue-50 rounded border border-blue-100">
+                          <ShieldCheck size={10} className="text-blue-500" />
+                          <span className="text-[9px] font-bold text-blue-600">NABH</span>
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center space-x-2 text-[11px] text-slate-400 ml-8">
+                      <span className={`px-2 py-0.5 rounded-full border text-[10px] font-bold capitalize ${tierStyle[p.price_tier] || tierStyle.mid}`}>
+                        {p.price_tier}
+                      </span>
+                      <span>📍 {p.score_breakdown.distance_km.toFixed(1)} km</span>
                     </div>
                   </div>
-                  <div className="w-10 h-10 rounded-full bg-teal-500/10 flex items-center justify-center text-teal-400 font-bold border border-teal-500/20 group-hover:bg-teal-500/20 transition-colors">
-                    #{provider.rank}
+                  {/* Score */}
+                  <div className="flex flex-col items-center">
+                    <div className="w-11 h-11 rounded-full bg-gradient-to-br from-teal-50 to-emerald-50 border-2 border-teal-200 flex items-center justify-center">
+                      <span className="text-[13px] font-extrabold text-teal-700">{(p.score * 100).toFixed(0)}</span>
+                    </div>
+                    <span className="text-[9px] text-slate-400 mt-1 font-medium">Score</span>
                   </div>
                 </div>
-                <p className="text-xs text-slate-400 leading-relaxed mt-2 bg-slate-800 p-2 rounded-lg">
-                  "{provider.why_this_hospital}"
+                <p className="text-[12px] text-slate-500 mt-2.5 ml-8 leading-relaxed bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                  💬 {p.why_this_hospital}
                 </p>
               </motion.div>
             ))}
           </div>
-          
-          <button className="w-full mt-4 flex items-center justify-center text-sm font-medium text-teal-400 hover:text-teal-300 py-2 transition-colors">
-            View All {providers.length} Providers <ChevronRight size={16} className="ml-1" />
-          </button>
         </div>
       )}
     </div>

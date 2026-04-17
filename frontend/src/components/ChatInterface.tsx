@@ -1,12 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Loader2, ShieldAlert } from 'lucide-react';
+import { Send, Bot, User, Loader2, ShieldCheck, Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 type Message = {
   id: string;
   role: 'user' | 'assistant';
   content: string;
-  isStreaming?: boolean;
 };
 
 interface ChatInterfaceProps {
@@ -18,19 +17,16 @@ export default function ChatInterface({ onContextUpdate }: ChatInterfaceProps) {
     {
       id: '1',
       role: 'assistant',
-      content: 'Hello. I am Clinivue. How can I help you navigate your healthcare options today?'
+      content: "Hi there! 👋 I'm Clinivue, your healthcare assistant. I can help you find the right hospitals, estimate treatment costs, and understand your lab reports.\n\nWhat can I help you with today?"
     }
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    scrollToBottom();
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -45,116 +41,137 @@ export default function ChatInterface({ onContextUpdate }: ChatInterfaceProps) {
     try {
       const response = await fetch('http://localhost:8000/api/v1/chat/', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          message: userMessage.content,
-          session_id: 'demo-session-id' // Mock session for now
-        })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: userMessage.content, session_id: 'demo-session-id' })
       });
-
       const data = await response.json();
-      
-      setMessages(prev => [...prev, {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: data.reply
-      }]);
-      
-      // Pass the complete intent data back up to App to fetch insights
-      if (data.intent && data.intent.procedure) {
-        onContextUpdate(data.intent);
-      }
-      
-    } catch (error) {
-      setMessages(prev => [...prev, {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: 'I apologize, but I encountered an error connecting to the intelligence core.'
-      }]);
+      setMessages(prev => [...prev, { id: (Date.now() + 1).toString(), role: 'assistant', content: data.reply }]);
+      if (data.intent?.procedure) onContextUpdate(data.intent);
+    } catch {
+      setMessages(prev => [...prev, { id: (Date.now() + 1).toString(), role: 'assistant', content: 'Sorry, I had trouble connecting. Please check that the server is running and try again.' }]);
     } finally {
       setLoading(false);
     }
   };
 
+  const quickPrompts = [
+    { emoji: '🫀', text: 'Angioplasty in Nagpur, budget 3 lakh, age 55' },
+    { emoji: '🦵', text: 'Knee replacement cost in Mumbai' },
+    { emoji: '👁️', text: 'Best hospitals for cataract surgery in Pune' },
+  ];
+
   return (
-    <div className="flex flex-col h-full bg-slate-800/40 rounded-3xl border border-white/5 shadow-2xl overflow-hidden glass-panel">
-      {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-6 scroll-smooth">
+    <div className="flex flex-col h-full card rounded-3xl overflow-hidden">
+      {/* Header */}
+      <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between flex-shrink-0 bg-gradient-to-r from-teal-50/80 to-white">
+        <div className="flex items-center space-x-3">
+          <div className="w-10 h-10 bg-gradient-to-br from-teal-500 to-emerald-500 rounded-xl flex items-center justify-center shadow-sm shadow-teal-200">
+            <Heart size={18} className="text-white" fill="white" />
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-slate-800">Clinivue Assistant</h2>
+            <div className="flex items-center space-x-1.5 mt-0.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+              <p className="text-[11px] text-emerald-600 font-medium">Ready to help</p>
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-100">
+          <ShieldCheck size={12} className="text-emerald-600" />
+          <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wide">Safe Mode</span>
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto px-5 py-5 space-y-4 min-h-0 bg-gradient-to-b from-slate-50/50 to-white">
         <AnimatePresence initial={false}>
           {messages.map((message) => (
             <motion.div
               key={message.id}
-              initial={{ opacity: 0, y: 10, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              className={`flex items-start gap-4 ${message.role === 'user' ? 'flex-row-reverse' : ''}`}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3 }}
+              className={`flex items-end gap-2.5 ${message.role === 'user' ? 'flex-row-reverse' : ''}`}
             >
-              {/* Avatar */}
-              <div className={`p-3 rounded-2xl flex-shrink-0 shadow-lg ${
-                message.role === 'assistant' 
-                  ? 'bg-gradient-to-br from-teal-500 to-emerald-600 text-white' 
-                  : 'bg-slate-700 border border-slate-600 text-slate-300'
+              <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white shadow-sm ${
+                message.role === 'assistant'
+                  ? 'bg-gradient-to-br from-teal-500 to-emerald-500'
+                  : 'bg-gradient-to-br from-indigo-500 to-violet-500'
               }`}>
-                {message.role === 'assistant' ? <Bot size={20} /> : <User size={20} />}
+                {message.role === 'assistant' ? <Bot size={15} /> : <User size={15} />}
               </div>
 
-              {/* Message Bubble */}
-              <div className={`max-w-[80%] rounded-2xl px-5 py-4 shadow-md text-[15px] leading-relaxed ${
+              <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-[14px] leading-[1.7] ${
                 message.role === 'user'
-                  ? 'bg-gradient-to-br from-teal-500 to-teal-600 text-white rounded-tr-none'
-                  : 'bg-slate-700/80 border border-slate-600/50 text-slate-200 rounded-tl-none'
+                  ? 'bg-gradient-to-r from-indigo-500 to-violet-500 text-white rounded-br-md shadow-sm shadow-indigo-100'
+                  : 'bg-white border border-slate-100 text-slate-700 rounded-bl-md shadow-sm'
               }`}>
-                <p>{message.content}</p>
+                <p className="whitespace-pre-line">{message.content}</p>
               </div>
             </motion.div>
           ))}
-          
+
           {loading && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="flex items-start gap-4"
-            >
-              <div className="p-3 rounded-2xl flex-shrink-0 bg-gradient-to-br from-teal-500 to-emerald-600 text-white shadow-lg">
-                <Bot size={20} />
+            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex items-end gap-2.5">
+              <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-gradient-to-br from-teal-500 to-emerald-500 text-white shadow-sm">
+                <Bot size={15} />
               </div>
-              <div className="bg-slate-700/80 border border-slate-600/50 rounded-2xl rounded-tl-none px-5 py-4 shadow-sm flex items-center space-x-2">
-                <Loader2 size={18} className="animate-spin text-teal-400" />
-                <span className="text-slate-400 text-sm font-medium">Analyzing...</span>
+              <div className="bg-white border border-slate-100 rounded-2xl rounded-bl-md px-5 py-3.5 shadow-sm">
+                <div className="flex items-center space-x-1.5">
+                  <span className="w-2 h-2 rounded-full bg-teal-400 animate-bounce [animation-delay:0ms]"></span>
+                  <span className="w-2 h-2 rounded-full bg-teal-400 animate-bounce [animation-delay:150ms]"></span>
+                  <span className="w-2 h-2 rounded-full bg-teal-400 animate-bounce [animation-delay:300ms]"></span>
+                </div>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Quick Prompts */}
+        {messages.length <= 1 && !loading && (
+          <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="pt-3">
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 px-1">Quick Start</p>
+            <div className="space-y-2">
+              {quickPrompts.map((prompt, i) => (
+                <button
+                  key={i}
+                  onClick={() => { setInput(prompt.text); inputRef.current?.focus(); }}
+                  className="w-full text-left px-4 py-3 bg-white rounded-xl border border-slate-100 text-[13px] text-slate-600 hover:border-teal-200 hover:bg-teal-50/30 transition-all shadow-sm group"
+                >
+                  <span className="mr-2">{prompt.emoji}</span>
+                  {prompt.text}
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        )}
+
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input Area */}
-      <div className="p-4 bg-slate-800/80 border-t border-slate-700 backdrop-blur-xl">
-        <div className="flex flex-col gap-3">
-          <form onSubmit={handleSubmit} className="relative flex items-center">
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Describe your symptoms or procedure you're looking for..."
-              className="w-full bg-slate-900/50 text-slate-100 placeholder:text-slate-500 border border-slate-600/50 rounded-2xl pl-5 pr-14 py-4 focus:outline-none focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500/50 transition-all shadow-inner text-[15px]"
-              disabled={loading}
-            />
-            <button
-              type="submit"
-              disabled={!input.trim() || loading}
-              className="absolute right-2 p-2.5 bg-teal-500 hover:bg-teal-400 text-slate-900 rounded-xl transition-colors disabled:opacity-50 disabled:hover:bg-teal-500 group shadow-md"
-            >
-              <Send size={18} className="group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
-            </button>
-          </form>
-          
-          <div className="flex items-center justify-center space-x-2 text-xs text-slate-500">
-            <ShieldAlert size={12} className="text-amber-500" />
-            <span>Clinivue is a decision-support tool, not professional medical advice.</span>
-          </div>
-        </div>
+      {/* Input */}
+      <div className="p-4 border-t border-slate-100 bg-white flex-shrink-0">
+        <form onSubmit={handleSubmit} className="relative">
+          <input
+            ref={inputRef}
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Ask about symptoms, treatments, or costs..."
+            className="w-full bg-slate-50 text-slate-800 placeholder:text-slate-400 border border-slate-200 rounded-2xl pl-5 pr-14 py-3.5 text-[14px] focus:outline-none focus:border-teal-300 focus:ring-2 focus:ring-teal-100 transition-all"
+            disabled={loading}
+          />
+          <button
+            type="submit"
+            disabled={!input.trim() || loading}
+            className="absolute right-2 top-1/2 -translate-y-1/2 p-2.5 bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 text-white rounded-xl transition-all disabled:opacity-30 shadow-sm shadow-teal-200 disabled:shadow-none"
+          >
+            <Send size={16} />
+          </button>
+        </form>
+        <p className="text-center text-[11px] text-slate-400 mt-2.5">
+          ⚕️ Decision-support only · Not medical advice
+        </p>
       </div>
     </div>
   );
