@@ -26,7 +26,7 @@ function App() {
                 <Activity className="w-6 h-6 text-white" />
               </div>
               <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-teal-400 to-emerald-300">
-                MedAssist AI
+                Clinivue
               </span>
             </div>
             <div className="flex items-center space-x-1 bg-slate-800/60 rounded-xl p-1 border border-slate-700/50">

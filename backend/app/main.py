@@ -21,4 +21,4 @@ app.include_router(api_router, prefix=settings.API_V1_STR)
 
 @app.get("/")
 def root():
-    return {"message": "Welcome to MedAssist AI API"}
+    return {"message": "Welcome to Clinivue API"}

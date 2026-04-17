@@ -18,7 +18,7 @@ export default function ChatInterface({ onContextUpdate }: ChatInterfaceProps) {
     {
       id: '1',
       role: 'assistant',
-      content: 'Hello. I am MedAssist AI. How can I help you navigate your healthcare options today?'
+      content: 'Hello. I am Clinivue. How can I help you navigate your healthcare options today?'
     }
   ]);
   const [input, setInput] = useState('');
@@ -152,7 +152,7 @@ export default function ChatInterface({ onContextUpdate }: ChatInterfaceProps) {
           
           <div className="flex items-center justify-center space-x-2 text-xs text-slate-500">
             <ShieldAlert size={12} className="text-amber-500" />
-            <span>MedAssist AI is a decision-support tool, not professional medical advice.</span>
+            <span>Clinivue is a decision-support tool, not professional medical advice.</span>
           </div>
         </div>
       </div>
