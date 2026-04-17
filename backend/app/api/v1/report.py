@@ -50,23 +50,9 @@ async def upload_report(file: UploadFile = File(...)):
             detail=f"File too large ({size_mb:.1f} MB). Maximum: {MAX_FILE_SIZE_MB} MB."
         )
 
-    # For MVP: extract text from the uploaded file
-    # In production this would use Tesseract/Google Vision for images
-    # and a PDF text extractor for PDFs
-    raw_text = ""
-    if file.content_type == "application/pdf":
-        try:
-            raw_text = content.decode("utf-8", errors="ignore")
-        except Exception:
-            raw_text = str(content[:5000])
-    else:
-        # For images, we'll pass a placeholder that triggers LLM to generate
-        # sample data (in production, OCR would run here)
-        raw_text = "[IMAGE_UPLOAD] Medical lab report image uploaded for analysis."
-
     # Generate report ID and start async processing
     report_id = str(uuid.uuid4())
-    start_report_processing(report_id, raw_text)
+    start_report_processing(report_id, content, file.content_type)
 
     return ReportUploadResponse(
         report_id=report_id,

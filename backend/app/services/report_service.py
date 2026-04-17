@@ -101,14 +101,13 @@ def _determine_status_severity(value: float, ref_range: tuple):
     return "normal", "normal"
 
 
-def _extract_parameters_with_llm(raw_text: str) -> list:
+def _extract_parameters_with_llm(file_bytes: bytes, mime_type: str) -> list:
     """
-    Stage 3 — Use Gemini to extract structured lab parameters from OCR text.
-    Falls back to regex if LLM fails.
+    Stage 3 — Use Gemini vision/text to extract structured lab parameters from the file.
     """
     client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
-    prompt = f"""You are a medical report parser. Extract ALL lab test parameters from the following report text.
+    prompt = f"""You are a medical report parser. Extract ALL lab test parameters from the following report.
 
 For each parameter, return:
 - "name": the test name (e.g., "Hemoglobin", "HbA1c", "Cholesterol")
@@ -116,17 +115,20 @@ For each parameter, return:
 - "unit": the unit of measurement (e.g., "mg/dL", "%", "g/dL")
 
 Return ONLY a valid JSON array of objects. If you cannot find any parameters, return an empty array [].
-
-Report text:
-\"\"\"
-{raw_text}
-\"\"\"
 """
 
     try:
+        contents = []
+        if mime_type.startswith("image/") or mime_type == "application/pdf":
+            contents.append(genai_types.Part.from_bytes(data=file_bytes, mime_type=mime_type))
+            contents.append(prompt)
+        else:
+            text_data = file_bytes.decode('utf-8', errors='ignore')
+            contents.append(prompt + f"\n\nReport text:\n\"\"\"\n{text_data}\n\"\"\"")
+
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
+            model="gemini-2.0-flash",
+            contents=contents,
             config=genai_types.GenerateContentConfig(
                 response_mime_type="application/json",
             ),
@@ -157,8 +159,8 @@ Report text:
                 except Exception as groq_err:
                     print(f"[ReportService] Groq fallback failed: {groq_err}")
 
-    # Fallback regex extraction
-    return _regex_extract_parameters(raw_text)
+    # If everything fails, return an empty list
+    return []
 
 
 def _regex_extract_parameters(text: str) -> list:
@@ -206,23 +208,19 @@ def _generate_explanation(param_name: str, value: float, status: str, severity: 
     return f"{param_name} value ({value}) is {severity_text}{direction} the normal range ({ref_range[0]}–{ref_range[1]}). Please consult a doctor."
 
 
-def _process_report_async(report_id: str, raw_text: str):
+def _process_report_async(report_id: str, file_bytes: bytes, mime_type: str):
     """
     Background thread that runs the full 7-stage pipeline.
     Updates _report_store as it progresses.
     """
     try:
-        # Stage 1 — Ingest (already done by upload endpoint)
+        # Stage 1 & 2 — Ingest (already done by upload endpoint)
         _report_store[report_id]["progress_pct"] = 10
-        time.sleep(0.3)
-
-        # Stage 2 — OCR (raw_text already provided by caller)
-        _report_store[report_id]["progress_pct"] = 25
         time.sleep(0.3)
 
         # Stage 3 — Parse: extract parameters
         _report_store[report_id]["progress_pct"] = 40
-        raw_params = _extract_parameters_with_llm(raw_text)
+        raw_params = _extract_parameters_with_llm(file_bytes, mime_type)
         time.sleep(0.2)
 
         # Stage 4 & 5 — Normalize & Reference compare
@@ -287,7 +285,7 @@ def _process_report_async(report_id: str, raw_text: str):
         })
 
 
-def start_report_processing(report_id: str, raw_text: str):
+def start_report_processing(report_id: str, file_bytes: bytes, mime_type: str):
     """Kick off async report processing in a background thread."""
     _report_store[report_id] = {
         "report_id": report_id,
@@ -296,7 +294,7 @@ def start_report_processing(report_id: str, raw_text: str):
     }
     thread = threading.Thread(
         target=_process_report_async,
-        args=(report_id, raw_text),
+        args=(report_id, file_bytes, mime_type),
         daemon=True,
     )
     thread.start()
