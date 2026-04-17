@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { Upload, FileText, Loader2, CheckCircle2, AlertTriangle, XCircle, ArrowDown, ShieldAlert, Microscope, ClipboardList } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { saveSearch } from '../lib/searchHistory';
 
 type ReportParam = { name: string; value: number; unit: string; status: string; severity: string; reference_range: number[]; explanation: string; };
 type ReportData = { report_id: string; status: string; parsed_at?: string; confidence?: number; parameters?: ReportParam[]; summary?: string; recommendation?: string; disclaimer?: string; progress_pct?: number; };
@@ -18,7 +19,7 @@ const SEV_STYLE: Record<string, string> = {
   normal:   'bg-emerald-50 text-emerald-700 border-emerald-200',
 };
 
-export default function ReportUploader() {
+export default function ReportUploader({ userUid }: { userUid: string }) {
   const [dragActive, setDragActive] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [reportData, setReportData] = useState<ReportData | null>(null);
@@ -33,7 +34,14 @@ export default function ReportUploader() {
       try {
         const res = await fetch(`http://localhost:8000/api/v1/report/${reportId}`);
         const data = await res.json();
-        if (data.status === 'complete' || data.status === 'failed') { setReportData(data); setUploading(false); return; }
+        if (data.status === 'complete' || data.status === 'failed') {
+          setReportData(data);
+          setUploading(false);
+          if (data.status === 'complete') {
+            saveSearch(userUid, 'report', fileName, { summary: data.summary, parameters: data.parameters?.length });
+          }
+          return;
+        }
         setReportData(data);
         if (attempt < 30) setTimeout(poll, 1000); else { setError('Timed out.'); setUploading(false); }
       } catch { setError('Connection lost.'); setUploading(false); }

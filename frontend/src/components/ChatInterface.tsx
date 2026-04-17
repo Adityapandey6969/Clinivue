@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User, Loader2, ShieldCheck, Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { saveSearch } from '../lib/searchHistory';
 
 type Message = {
   id: string;
@@ -10,9 +11,10 @@ type Message = {
 
 interface ChatInterfaceProps {
   onContextUpdate: (data: any) => void;
+  userUid: string;
 }
 
-export default function ChatInterface({ onContextUpdate }: ChatInterfaceProps) {
+export default function ChatInterface({ onContextUpdate, userUid }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -46,6 +48,8 @@ export default function ChatInterface({ onContextUpdate }: ChatInterfaceProps) {
       });
       const data = await response.json();
       setMessages(prev => [...prev, { id: (Date.now() + 1).toString(), role: 'assistant', content: data.reply }]);
+      // Save to encrypted history
+      saveSearch(userUid, 'chat', userMessage.content, data.reply);
       if (data.intent?.procedure) onContextUpdate(data.intent);
     } catch {
       setMessages(prev => [...prev, { id: (Date.now() + 1).toString(), role: 'assistant', content: 'Sorry, I had trouble connecting. Please check that the server is running and try again.' }]);
