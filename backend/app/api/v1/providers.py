@@ -92,7 +92,7 @@ Rules:
                     return data
             except Exception as e2:
                 print(f"[ProviderEngine] Fallback failed: {e2}")
-                if "429" in str(e2) or "RESOURCE_EXHAUSTED" in str(e2):
+                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e) or "429" in str(e2) or "RESOURCE_EXHAUSTED" in str(e2):
                     if settings.GROQ_API_KEY:
                         print("[ProviderEngine] Gemini Quota Exceeded. Falling back to Groq.")
                         try:

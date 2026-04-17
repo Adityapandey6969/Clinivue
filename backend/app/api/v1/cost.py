@@ -105,28 +105,26 @@ Rules:
                 return data
             except Exception as e2:
                 print(f"[CostEngine] Fallback also failed: {e2}")
+                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e) or "429" in str(e2) or "RESOURCE_EXHAUSTED" in str(e2):
+                    if settings.GROQ_API_KEY:
+                        print("[CostEngine] Gemini Quota Exceeded. Falling back to Groq.")
+                        try:
+                            groq_client = Groq(api_key=settings.GROQ_API_KEY)
+                            groq_response = groq_client.chat.completions.create(
+                                model="llama-3.3-70b-versatile",
+                                messages=[{"role": "system", "content": "You are a helpful assistant that outputs only valid JSON."}, 
+                                          {"role": "user", "content": prompt}],
+                                temperature=0.2,
+                                response_format={"type": "json_object"}
+                            )
+                            groq_data = json.loads(groq_response.choices[0].message.content)
+                            groq_data["confidence"] = max(0.0, groq_data.get("confidence", 0.5) - 0.2)
+                            groq_data.setdefault("notes", "Estimated from Groq fallback AI knowledge.")
+                            return groq_data
+                        except Exception as groq_err:
+                            print(f"[CostEngine] Groq fallback failed: {groq_err}")
+                    return {"_error": "quota_exceeded"}
                 continue
-            
-            # If it's a quota error, we should return a specific signal instead of just None
-            if "429" in str(e2) or "RESOURCE_EXHAUSTED" in str(e2):
-                if settings.GROQ_API_KEY:
-                    print("[CostEngine] Gemini Quota Exceeded. Falling back to Groq.")
-                    try:
-                        groq_client = Groq(api_key=settings.GROQ_API_KEY)
-                        groq_response = groq_client.chat.completions.create(
-                            model="llama-3.3-70b-versatile",
-                            messages=[{"role": "system", "content": "You are a helpful assistant that outputs only valid JSON."}, 
-                                      {"role": "user", "content": prompt}],
-                            temperature=0.2,
-                            response_format={"type": "json_object"}
-                        )
-                        groq_data = json.loads(groq_response.choices[0].message.content)
-                        groq_data["confidence"] = max(0.0, groq_data.get("confidence", 0.5) - 0.2)
-                        groq_data.setdefault("notes", "Estimated from Groq fallback AI knowledge.")
-                        return groq_data
-                    except Exception as groq_err:
-                        print(f"[CostEngine] Groq fallback failed: {groq_err}")
-                return {"_error": "quota_exceeded"}
 
     return None
 
