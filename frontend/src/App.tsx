@@ -25,13 +25,9 @@ function App() {
     return unsubscribe;
   }, []);
 
-  // Save searches to encrypted history
+  // Update context for right panel
   const handleContextUpdate = (data: any) => {
     setContextData(data);
-    if (user) {
-      const query = [data.procedure, data.location, data.budget_inr ? `₹${data.budget_inr}` : ''].filter(Boolean).join(', ');
-      saveSearch(user.uid, 'chat', query || 'Healthcare query', data);
-    }
   };
 
   const tabs: { key: TabKey; label: string; icon: React.ReactNode }[] = [
@@ -121,9 +117,15 @@ function App() {
       <main className="flex-1 max-w-[1440px] w-full mx-auto px-6 py-5 grid grid-cols-1 lg:grid-cols-12 gap-5 min-h-0">
         {/* Left — Chat / Reports / History */}
         <div className="lg:col-span-7 flex flex-col min-h-0">
-          {activeTab === 'copilot' && <ChatInterface onContextUpdate={handleContextUpdate} userUid={user.uid} />}
-          {activeTab === 'reports' && <ReportUploader userUid={user.uid} />}
-          {activeTab === 'history' && <SearchHistory userUid={user.uid} />}
+          <div className={activeTab === 'copilot' ? 'h-full' : 'hidden'}>
+            <ChatInterface onContextUpdate={handleContextUpdate} userUid={user.uid} />
+          </div>
+          <div className={activeTab === 'reports' ? 'h-full' : 'hidden'}>
+            <ReportUploader userUid={user.uid} />
+          </div>
+          <div className={activeTab === 'history' ? 'h-full' : 'hidden'}>
+            <SearchHistory userUid={user.uid} />
+          </div>
         </div>
 
         {/* Right — Insights */}

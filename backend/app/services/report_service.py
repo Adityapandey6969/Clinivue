@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 
 from google import genai
 from google.genai import types as genai_types
+from groq import Groq
 from app.core.config import settings
 from app.services.safety_classifier import (
     generate_safe_recommendation,
@@ -135,6 +136,26 @@ Report text:
             return params
     except Exception as e:
         print(f"[ReportService] LLM extraction failed: {e}")
+        if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+            if settings.GROQ_API_KEY:
+                print("[ReportService] Gemini Quota Exceeded. Falling back to Groq.")
+                try:
+                    groq_client = Groq(api_key=settings.GROQ_API_KEY)
+                    groq_response = groq_client.chat.completions.create(
+                        model="llama-3.3-70b-versatile",
+                        messages=[{"role": "system", "content": "You are a helpful assistant that outputs only valid JSON arrays."}, 
+                                  {"role": "user", "content": prompt}],
+                        temperature=0.1,
+                    )
+                    groq_text = groq_response.choices[0].message.content
+                    start_idx = groq_text.find('[')
+                    end_idx = groq_text.rfind(']')
+                    if start_idx != -1 and end_idx != -1:
+                        groq_data = json.loads(groq_text[start_idx:end_idx+1])
+                        if isinstance(groq_data, list):
+                            return groq_data
+                except Exception as groq_err:
+                    print(f"[ReportService] Groq fallback failed: {groq_err}")
 
     # Fallback regex extraction
     return _regex_extract_parameters(raw_text)

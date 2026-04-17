@@ -8,6 +8,7 @@ import time
 from fastapi import APIRouter
 from google import genai
 from google.genai import types as genai_types
+from groq import Groq
 
 from app.schemas.provider import ProviderRequest, ProviderListResponse, ProviderOutput, ScoreBreakdown
 from app.schemas.intent import ConfidenceEnvelope
@@ -91,6 +92,30 @@ Rules:
                     return data
             except Exception as e2:
                 print(f"[ProviderEngine] Fallback failed: {e2}")
+                if "429" in str(e2) or "RESOURCE_EXHAUSTED" in str(e2):
+                    if settings.GROQ_API_KEY:
+                        print("[ProviderEngine] Gemini Quota Exceeded. Falling back to Groq.")
+                        try:
+                            groq_client = Groq(api_key=settings.GROQ_API_KEY)
+                            groq_response = groq_client.chat.completions.create(
+                                model="llama-3.3-70b-versatile",
+                                messages=[{"role": "system", "content": "You are a helpful assistant that outputs only valid JSON arrays."}, 
+                                          {"role": "user", "content": prompt}],
+                                temperature=0.2,
+                            )
+                            # llama-3.3-70b-versatile doesn't reliably support json_object mode if the prompt asks for a JSON array,
+                            # so we parse the text output directly.
+                            groq_text = groq_response.choices[0].message.content
+                            # find array
+                            start_idx = groq_text.find('[')
+                            end_idx = groq_text.rfind(']')
+                            if start_idx != -1 and end_idx != -1:
+                                groq_data = json.loads(groq_text[start_idx:end_idx+1])
+                                if isinstance(groq_data, list) and len(groq_data) > 0:
+                                    return groq_data
+                        except Exception as groq_err:
+                            print(f"[ProviderEngine] Groq fallback failed: {groq_err}")
+                    return [{"_error": "quota_exceeded"}]
                 continue
 
     return None
@@ -106,14 +131,15 @@ def get_providers(request: ProviderRequest):
         budget_inr=request.budget_inr,
     )
 
-    if hospitals is None:
+    if hospitals is None or (len(hospitals) > 0 and hospitals[0].get("_error") == "quota_exceeded"):
+        err_msg = "Gemini API Quota Exceeded. Please try again later." if hospitals and len(hospitals) > 0 and hospitals[0].get("_error") == "quota_exceeded" else "Could not search for hospitals. Please try again."
         # If Gemini is completely down, return a helpful error
         return ProviderListResponse(
             providers=[],
             confidence=ConfidenceEnvelope(
                 confidence_score=0.0,
                 risk_flags=["ai_service_unavailable"],
-                assumptions=["Could not search for hospitals. Please try again."],
+                assumptions=[err_msg],
             ),
         )
 

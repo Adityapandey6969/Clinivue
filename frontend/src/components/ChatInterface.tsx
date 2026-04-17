@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Loader2, ShieldCheck, Heart } from 'lucide-react';
+import { Send, Bot, User, Loader2, ShieldCheck, Heart, MapPin } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { saveSearch } from '../lib/searchHistory';
 
@@ -24,12 +24,43 @@ export default function ChatInterface({ onContextUpdate, userUid }: ChatInterfac
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [userCity, setUserCity] = useState<string | null>(null);
+  const [locating, setLocating] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  const detectLocation = () => {
+    if (!navigator.geolocation) {
+      alert("Geolocation is not supported by your browser");
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${position.coords.latitude}&lon=${position.coords.longitude}&format=json`);
+          const data = await res.json();
+          const city = data.address.city || data.address.town || data.address.state_district || data.address.state;
+          if (city) {
+            setUserCity(city);
+          }
+        } catch (err) {
+          console.error("Reverse geocoding failed", err);
+        } finally {
+          setLocating(false);
+        }
+      },
+      (error) => {
+        console.error(error);
+        setLocating(false);
+        alert("Unable to retrieve your location");
+      }
+    );
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,7 +81,14 @@ export default function ChatInterface({ onContextUpdate, userUid }: ChatInterfac
       setMessages(prev => [...prev, { id: (Date.now() + 1).toString(), role: 'assistant', content: data.reply }]);
       // Save to encrypted history
       saveSearch(userUid, 'chat', userMessage.content, data.reply);
-      if (data.intent?.procedure) onContextUpdate(data.intent);
+      
+      // Inject auto-detected city if the AI couldn't find one in the text
+      if (data.intent?.procedure) {
+        if (!data.intent.location && userCity) {
+          data.intent.location = userCity;
+        }
+        onContextUpdate(data.intent);
+      }
     } catch {
       setMessages(prev => [...prev, { id: (Date.now() + 1).toString(), role: 'assistant', content: 'Sorry, I had trouble connecting. Please check that the server is running and try again.' }]);
     } finally {
@@ -154,7 +192,27 @@ export default function ChatInterface({ onContextUpdate, userUid }: ChatInterfac
       </div>
 
       {/* Input */}
-      <div className="p-4 border-t border-slate-100 bg-white flex-shrink-0">
+      <div className="p-5 bg-white border-t border-slate-100 flex-shrink-0">
+        {!userCity && (
+          <div className="mb-3 flex justify-start">
+            <button
+              onClick={detectLocation}
+              disabled={locating}
+              className="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-50 hover:bg-teal-50 border border-slate-200 hover:border-teal-200 rounded-full text-[11px] font-semibold text-slate-500 hover:text-teal-700 transition-colors"
+            >
+              {locating ? <Loader2 size={12} className="animate-spin" /> : <MapPin size={12} />}
+              <span>{locating ? "Detecting location..." : "Share Location for better results"}</span>
+            </button>
+          </div>
+        )}
+        {userCity && (
+          <div className="mb-3 flex justify-start">
+            <span className="flex items-center space-x-1.5 px-3 py-1.5 bg-teal-50 border border-teal-200 rounded-full text-[11px] font-bold text-teal-700">
+              <MapPin size={12} />
+              <span>Location: {userCity}</span>
+            </span>
+          </div>
+        )}
         <form onSubmit={handleSubmit} className="relative">
           <input
             ref={inputRef}

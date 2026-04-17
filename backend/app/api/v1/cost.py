@@ -8,6 +8,7 @@ import time
 from fastapi import APIRouter
 from google import genai
 from google.genai import types as genai_types
+from groq import Groq
 
 from app.schemas.cost import CostEstimateRequest, CostEstimateResponse, CostComponent, RangeInr
 from app.schemas.intent import ConfidenceEnvelope
@@ -105,6 +106,27 @@ Rules:
             except Exception as e2:
                 print(f"[CostEngine] Fallback also failed: {e2}")
                 continue
+            
+            # If it's a quota error, we should return a specific signal instead of just None
+            if "429" in str(e2) or "RESOURCE_EXHAUSTED" in str(e2):
+                if settings.GROQ_API_KEY:
+                    print("[CostEngine] Gemini Quota Exceeded. Falling back to Groq.")
+                    try:
+                        groq_client = Groq(api_key=settings.GROQ_API_KEY)
+                        groq_response = groq_client.chat.completions.create(
+                            model="llama-3.3-70b-versatile",
+                            messages=[{"role": "system", "content": "You are a helpful assistant that outputs only valid JSON."}, 
+                                      {"role": "user", "content": prompt}],
+                            temperature=0.2,
+                            response_format={"type": "json_object"}
+                        )
+                        groq_data = json.loads(groq_response.choices[0].message.content)
+                        groq_data["confidence"] = max(0.0, groq_data.get("confidence", 0.5) - 0.2)
+                        groq_data.setdefault("notes", "Estimated from Groq fallback AI knowledge.")
+                        return groq_data
+                    except Exception as groq_err:
+                        print(f"[CostEngine] Groq fallback failed: {groq_err}")
+                return {"_error": "quota_exceeded"}
 
     return None
 
@@ -120,7 +142,8 @@ def get_cost_estimate(request: CostEstimateRequest):
         comorbidities=request.comorbidities,
     )
 
-    if real_data is None:
+    if real_data is None or real_data.get("_error") == "quota_exceeded":
+        err_msg = "Gemini API Quota Exceeded. Please try again later." if real_data and real_data.get("_error") == "quota_exceeded" else "Could not fetch real-time pricing. This is a rough fallback estimate."
         # Ultimate fallback if Gemini is completely down
         return CostEstimateResponse(
             components=[CostComponent(name="Estimated Total", min_inr=50000, max_inr=300000)],
@@ -128,7 +151,7 @@ def get_cost_estimate(request: CostEstimateRequest):
             confidence=ConfidenceEnvelope(
                 confidence_score=0.20,
                 risk_flags=["ai_service_unavailable"],
-                assumptions=["Could not fetch real-time pricing. This is a rough fallback estimate."],
+                assumptions=[err_msg],
             ),
             disclaimer="Unable to fetch live pricing. Please consult hospitals directly for accurate quotes.",
         )

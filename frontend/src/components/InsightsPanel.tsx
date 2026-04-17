@@ -37,6 +37,24 @@ export default function InsightsPanel({ contextData }: { contextData: any }) {
     );
   }
 
+  // If a procedure was found but no location was specified, ask for the location
+  if (contextData?.procedure && !contextData?.location && !providers.length && !costData) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-center px-8 animate-slide-up">
+        <div className="w-16 h-16 rounded-2xl bg-amber-50 flex items-center justify-center mb-4 border border-amber-100">
+          <MapPin className="w-7 h-7 text-amber-500" />
+        </div>
+        <h3 className="text-sm font-bold text-slate-700 mb-1">Where are you looking?</h3>
+        <p className="text-xs text-slate-400 max-w-[240px]">
+          We found your query for <span className="font-semibold text-slate-600 capitalize">{contextData.procedure}</span>, but we need a city to estimate costs and find hospitals.
+        </p>
+        <div className="mt-4 px-3 py-1.5 bg-slate-50 rounded-lg border border-slate-100 text-[11px] text-slate-500 font-medium">
+          💡 Try replying: "in Mumbai" or "in Delhi"
+        </div>
+      </div>
+    );
+  }
+
   if (!providers.length && !costData) return null;
 
   const tierStyle: Record<string, string> = {

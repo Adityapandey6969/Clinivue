@@ -3,6 +3,7 @@ import re
 import time
 from google import genai
 from google.genai import types
+from groq import Groq
 from app.core.config import settings
 from app.schemas.intent import IntentOutput
 
@@ -25,7 +26,24 @@ def _try_gemini_extract(client, prompt: str, max_retries: int = 3) -> dict | Non
             return data
         except Exception as e:
             error_str = str(e)
-            if "503" in error_str or "UNAVAILABLE" in error_str or "overloaded" in error_str.lower():
+            if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                if settings.GROQ_API_KEY:
+                    print("[AI Service] Gemini Quota Exceeded. Falling back to Groq.")
+                    try:
+                        groq_client = Groq(api_key=settings.GROQ_API_KEY)
+                        groq_response = groq_client.chat.completions.create(
+                            model="llama-3.3-70b-versatile",
+                            messages=[{"role": "system", "content": "You are a helpful assistant that outputs only valid JSON."}, 
+                                      {"role": "user", "content": prompt}],
+                            temperature=0.1,
+                            response_format={"type": "json_object"}
+                        )
+                        return json.loads(groq_response.choices[0].message.content)
+                    except Exception as groq_err:
+                        print(f"[AI Service] Groq fallback failed: {groq_err}")
+                        return None
+                return None
+            elif "503" in error_str or "UNAVAILABLE" in error_str or "overloaded" in error_str.lower():
                 wait = 2 ** attempt
                 print(f"[AI Service] Gemini overloaded, retrying in {wait}s (attempt {attempt+1}/{max_retries})")
                 time.sleep(wait)
