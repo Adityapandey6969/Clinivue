@@ -107,8 +107,8 @@ export default function ChatInterface({ onContextUpdate, userUid }: ChatInterfac
       {/* Header */}
       <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between flex-shrink-0 bg-gradient-to-r from-teal-50/80 to-white">
         <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 bg-gradient-to-br from-teal-500 to-emerald-500 rounded-xl flex items-center justify-center shadow-sm shadow-teal-200">
-            <Heart size={18} className="text-white" fill="white" />
+          <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm border border-slate-100">
+            <img src="/logo.png" alt="Clinivue" className="w-6 h-6 object-contain" />
           </div>
           <div>
             <h2 className="text-sm font-bold text-slate-800">Clinivue Assistant</h2>
@@ -135,12 +135,12 @@ export default function ChatInterface({ onContextUpdate, userUid }: ChatInterfac
               transition={{ duration: 0.3 }}
               className={`flex items-end gap-2.5 ${message.role === 'user' ? 'flex-row-reverse' : ''}`}
             >
-              <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white shadow-sm ${
+              <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center shadow-sm overflow-hidden ${
                 message.role === 'assistant'
-                  ? 'bg-gradient-to-br from-teal-500 to-emerald-500'
-                  : 'bg-gradient-to-br from-indigo-500 to-violet-500'
+                  ? 'bg-white border border-slate-100'
+                  : 'bg-gradient-to-br from-indigo-500 to-violet-500 text-white'
               }`}>
-                {message.role === 'assistant' ? <Bot size={15} /> : <User size={15} />}
+                {message.role === 'assistant' ? <img src="/logo.png" className="w-5 h-5 object-contain" /> : <User size={15} />}
               </div>
 
               <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-[14px] leading-[1.7] ${

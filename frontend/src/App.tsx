@@ -41,8 +41,8 @@ function App() {
     return (
       <div className="h-screen warm-bg flex items-center justify-center">
         <div className="flex flex-col items-center space-y-4">
-          <div className="p-4 bg-gradient-to-br from-teal-500 to-emerald-500 rounded-2xl shadow-lg shadow-teal-200/50">
-            <Heart className="w-8 h-8 text-white animate-pulse" fill="white" />
+          <div className="p-3 bg-white rounded-2xl shadow-lg shadow-teal-100 border border-slate-50 flex items-center justify-center">
+            <img src="/logo.png" alt="Clinivue" className="w-10 h-10 animate-pulse object-contain" />
           </div>
           <p className="text-sm font-semibold text-slate-400">Loading Clinivue...</p>
         </div>
@@ -62,8 +62,8 @@ function App() {
         <div className="max-w-[1440px] mx-auto flex items-center justify-between">
           {/* Brand */}
           <div className="flex items-center space-x-3">
-            <div className="p-2 bg-gradient-to-br from-teal-500 to-emerald-500 rounded-xl shadow-sm shadow-teal-200">
-              <Heart className="w-5 h-5 text-white" fill="white" />
+            <div className="w-10 h-10 bg-white rounded-xl shadow-sm border border-slate-100 flex items-center justify-center">
+              <img src="/logo.png" alt="Clinivue" className="w-7 h-7 object-contain" />
             </div>
             <div>
               <span className="text-lg font-extrabold text-slate-800 tracking-tight">Clinivue</span>
@@ -151,8 +151,8 @@ function App() {
                 <InsightsPanel contextData={contextData} />
               ) : (
                 <div className="flex flex-col items-center justify-center h-full text-center px-8">
-                  <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-teal-50 to-emerald-50 flex items-center justify-center mb-5 border border-teal-100 animate-float">
-                    <Heart className="w-8 h-8 text-teal-400" />
+                  <div className="w-20 h-20 rounded-2xl bg-white flex items-center justify-center mb-5 border border-slate-100 shadow-sm animate-float">
+                    <img src="/logo.png" alt="" className="w-12 h-12 object-contain" />
                   </div>
                   <h3 className="text-base font-bold text-slate-700 mb-2">How Can We Help?</h3>
                   <p className="text-slate-400 text-sm leading-relaxed max-w-[260px]">

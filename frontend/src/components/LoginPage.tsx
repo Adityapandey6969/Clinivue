@@ -25,8 +25,8 @@ export default function LoginPage() {
         <div className="card rounded-3xl p-10 text-center">
           {/* Logo */}
           <div className="flex justify-center mb-6">
-            <div className="p-4 bg-gradient-to-br from-teal-500 to-emerald-500 rounded-2xl shadow-lg shadow-teal-200/50">
-              <Heart className="w-10 h-10 text-white" fill="white" />
+            <div className="p-3 bg-white rounded-2xl shadow-lg shadow-teal-100 border border-slate-50 flex items-center justify-center">
+              <img src="/logo.png" alt="Clinivue" className="w-12 h-12 object-contain" />
             </div>
           </div>
 
