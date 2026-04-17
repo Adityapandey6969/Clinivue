@@ -149,7 +149,16 @@ export default function InsightsPanel({ contextData }: { contextData: any }) {
                       <span className="w-6 h-6 rounded-full bg-teal-50 border border-teal-200 flex items-center justify-center text-[11px] font-bold text-teal-700">
                         {p.rank}
                       </span>
-                      <h4 className="text-[13px] font-bold text-slate-800 group-hover:text-teal-700 transition-colors">{p.name}</h4>
+                      <a 
+                        href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${p.name}, ${p.city}`)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[13px] font-bold text-slate-800 hover:text-teal-700 transition-colors underline decoration-slate-200 hover:decoration-teal-400 underline-offset-2 flex items-center"
+                        onClick={(e) => e.stopPropagation()}
+                        title="View on Google Maps"
+                      >
+                        {p.name}
+                      </a>
                       {p.nabh_accredited && (
                         <span className="flex items-center space-x-1 px-1.5 py-0.5 bg-blue-50 rounded border border-blue-100">
                           <ShieldCheck size={10} className="text-blue-500" />
