@@ -50,6 +50,7 @@ For each hospital, return a JSON array of objects with:
 
 Rules:
 - Return ONLY real, existing hospitals. Do NOT invent hospital names.
+- Ensure impeccable spelling, vocabulary, and grammar in your response. Double-check the EXACT official spelling of hospital names (e.g., 'Apollo', not 'Appollo').
 - Rank by best overall fit (clinical quality + affordability + reputation).
 - Return 3-5 hospitals maximum.
 - Return ONLY a valid JSON array, nothing else.
