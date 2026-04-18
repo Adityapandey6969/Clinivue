@@ -5,6 +5,7 @@ No hardcoded values. Every estimate comes from live web data.
 
 import json
 import time
+from typing import Optional, List
 from fastapi import APIRouter
 from google import genai
 from google.genai import types as genai_types
@@ -17,7 +18,7 @@ from app.core.config import settings
 router = APIRouter()
 
 
-def _fetch_real_costs_from_gemini(procedure: str, city: str, age: int | None, comorbidities: list[str] | None) -> dict:
+def _fetch_real_costs_from_gemini(procedure: str, city: str, age: Optional[int], comorbidities: Optional[List[str]]) -> dict:
     """
     Use Gemini with Google Search grounding to find real hospital costs
     for a given procedure in a given Indian city.

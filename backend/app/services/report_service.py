@@ -14,6 +14,11 @@ import json
 import uuid
 import time
 import threading
+import io
+import pypdf
+import subprocess
+import os
+import tempfile
 from typing import Dict, List, Optional
 from datetime import datetime, timezone
 
@@ -117,6 +122,7 @@ For each parameter, return:
 Return ONLY a valid JSON array of objects. If you cannot find any parameters, return an empty array [].
 """
 
+    # --- Stage 3.1: Try Gemini (multimodal) ---
     try:
         contents = []
         if mime_type.startswith("image/") or mime_type == "application/pdf":
@@ -134,30 +140,68 @@ Return ONLY a valid JSON array of objects. If you cannot find any parameters, re
             ),
         )
         params = json.loads(response.text)
-        if isinstance(params, list):
+        if isinstance(params, list) and len(params) > 0:
             return params
     except Exception as e:
-        print(f"[ReportService] LLM extraction failed: {e}")
-        if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-            if settings.GROQ_API_KEY:
-                print("[ReportService] Gemini Quota Exceeded. Falling back to Groq.")
+        print(f"[ReportService] Gemini extraction failed: {e}")
+
+    # --- Stage 3.2: Try Groq (text-only fallback) ---
+    if settings.GROQ_API_KEY:
+        print("[ReportService] Attempting Groq fallback...")
+        try:
+            # For Groq, we MUST extract text locally since it can't "see" files
+            text_data = ""
+            if mime_type == "application/pdf":
                 try:
-                    groq_client = Groq(api_key=settings.GROQ_API_KEY)
-                    groq_response = groq_client.chat.completions.create(
-                        model="llama-3.3-70b-versatile",
-                        messages=[{"role": "system", "content": "You are a helpful assistant that outputs only valid JSON arrays."}, 
-                                  {"role": "user", "content": prompt}],
-                        temperature=0.1,
-                    )
-                    groq_text = groq_response.choices[0].message.content
-                    start_idx = groq_text.find('[')
-                    end_idx = groq_text.rfind(']')
-                    if start_idx != -1 and end_idx != -1:
-                        groq_data = json.loads(groq_text[start_idx:end_idx+1])
-                        if isinstance(groq_data, list):
-                            return groq_data
-                except Exception as groq_err:
-                    print(f"[ReportService] Groq fallback failed: {groq_err}")
+                    pdf_reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+                    text_data = "\n".join([page.extract_text() or "" for page in pdf_reader.pages])
+                except Exception as pdf_err:
+                    print(f"[ReportService] Local PDF text extraction failed: {pdf_err}")
+            elif mime_type.startswith("image/"):
+                try:
+                    print("[ReportService] Attempting native macOS OCR for image...")
+                    # Save image to a temporary file
+                    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                        tmp.write(file_bytes)
+                        tmp_path = tmp.name
+                    
+                    # Run the Swift OCR utility
+                    swift_path = os.path.join(os.path.dirname(__file__), "..", "utils", "ocr.swift")
+                    result = subprocess.run(["swift", swift_path, tmp_path], capture_output=True, text=True)
+                    text_data = result.stdout.strip()
+                    
+                    # Cleanup
+                    os.unlink(tmp_path)
+                    
+                    if text_data:
+                        print(f"[ReportService] Local OCR successful. Extracted {len(text_data)} characters.")
+                except Exception as ocr_err:
+                    print(f"[ReportService] Native OCR bridge failed: {ocr_err}")
+            else:
+                text_data = file_bytes.decode('utf-8', errors='ignore')
+
+            if text_data:
+                enriched_prompt = prompt + f"\n\nHERE IS THE REPORT TEXT TO ANALYZE:\n\"\"\"\n{text_data}\n\"\"\""
+                
+                groq_client = Groq(api_key=settings.GROQ_API_KEY)
+                groq_response = groq_client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[{"role": "system", "content": "You are a helpful assistant that outputs only valid JSON arrays."}, 
+                              {"role": "user", "content": enriched_prompt}],
+                    temperature=0.1,
+                )
+                groq_text = groq_response.choices[0].message.content
+                start_idx = groq_text.find('[')
+                end_idx = groq_text.rfind(']')
+                if start_idx != -1 and end_idx != -1:
+                    groq_data = json.loads(groq_text[start_idx:end_idx+1])
+                    if isinstance(groq_data, list) and len(groq_data) > 0:
+                        return groq_data
+            else:
+                print("[ReportService] Groq fallback skipped: No text content available (images require Gemini OCR).")
+
+        except Exception as groq_err:
+            print(f"[ReportService] Groq fallback failed: {groq_err}")
 
     # If everything fails, return an empty list
     return []
@@ -221,6 +265,23 @@ def _process_report_async(report_id: str, file_bytes: bytes, mime_type: str):
         # Stage 3 — Parse: extract parameters
         _report_store[report_id]["progress_pct"] = 40
         raw_params = _extract_parameters_with_llm(file_bytes, mime_type)
+        
+        # Final Rule-based Fallback if AI finds nothing
+        if not raw_params:
+            print("[ReportService] AI found no parameters. Attempting regex fallback.")
+            try:
+                text_data = ""
+                if mime_type == "application/pdf":
+                    pdf_reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+                    text_data = "".join([page.extract_text() for page in pdf_reader.pages])
+                else:
+                    text_data = file_bytes.decode('utf-8', errors='ignore')
+                
+                if text_data:
+                    raw_params = _regex_extract_parameters(text_data)
+            except Exception as e:
+                print(f"[ReportService] Regex fallback failed: {e}")
+        
         time.sleep(0.2)
 
         # Stage 4 & 5 — Normalize & Reference compare
@@ -259,8 +320,8 @@ def _process_report_async(report_id: str, file_bytes: bytes, mime_type: str):
             summary = "All parameters appear within normal ranges. Continue routine health check-ups."
 
         # Generate safe recommendation using the guardrailed engine
-        recommendation = generate_safe_recommendation(parameters)
-        sanitized_rec, _ = sanitize_llm_output(recommendation)
+        rec_data = generate_safe_recommendation(parameters)
+        sanitized_rec, _ = sanitize_llm_output(rec_data["recommendation_text"])
 
         # Calculate overall confidence
         matched = sum(1 for p in raw_params if _get_reference(p["name"])[0] is not None)
@@ -274,6 +335,8 @@ def _process_report_async(report_id: str, file_bytes: bytes, mime_type: str):
             "parameters": parameters,
             "summary": summary,
             "recommendation": sanitized_rec,
+            "home_remedies": rec_data["home_remedies"],
+            "action_plan": rec_data["action_plan"],
         })
 
     except Exception as e:

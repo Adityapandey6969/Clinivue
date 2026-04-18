@@ -1,10 +1,10 @@
 import React, { useState, useRef, useCallback } from 'react';
-import { Upload, FileText, Loader2, CheckCircle2, AlertTriangle, XCircle, ArrowDown, ShieldAlert, Microscope, ClipboardList } from 'lucide-react';
+import { Upload, FileText, Loader2, CheckCircle2, AlertTriangle, XCircle, ArrowDown, ShieldAlert, Microscope, ClipboardList, Leaf, Calendar } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { saveSearch } from '../lib/searchHistory';
 
 type ReportParam = { name: string; value: number; unit: string; status: string; severity: string; reference_range: number[]; explanation: string; };
-type ReportData = { report_id: string; status: string; parsed_at?: string; confidence?: number; parameters?: ReportParam[]; summary?: string; recommendation?: string; disclaimer?: string; progress_pct?: number; };
+type ReportData = { report_id: string; status: string; parsed_at?: string; confidence?: number; parameters?: ReportParam[]; summary?: string; recommendation?: string; home_remedies?: string[]; action_plan?: string[]; disclaimer?: string; progress_pct?: number; };
 
 const STATUS_CFG: Record<string, { bg: string; text: string; icon: React.ReactNode }> = {
   high:   { bg: 'bg-red-50',     text: 'text-red-600',     icon: <AlertTriangle size={13} /> },
@@ -188,8 +188,36 @@ export default function ReportUploader({ userUid }: { userUid: string }) {
 
             {reportData.recommendation && (
               <div className="rounded-xl p-4 bg-teal-50/50 border border-teal-100">
-                <h3 className="text-[13px] font-bold text-teal-700 mb-2 flex items-center space-x-2"><ShieldAlert size={14} /><span>Guidance</span></h3>
+                <h3 className="text-[13px] font-bold text-teal-700 mb-2 flex items-center space-x-2"><ShieldAlert size={14} /><span>Professional Guidance</span></h3>
                 <div className="text-[13px] text-slate-600 leading-relaxed whitespace-pre-line">{reportData.recommendation}</div>
+              </div>
+            )}
+
+            {reportData.home_remedies && reportData.home_remedies.length > 0 && (
+              <div className="rounded-xl p-4 bg-emerald-50/50 border border-emerald-100">
+                <h3 className="text-[13px] font-bold text-emerald-700 mb-3 flex items-center space-x-2"><Leaf size={14} /><span>Traditional & Home Remedies</span></h3>
+                <div className="space-y-2">
+                  {reportData.home_remedies.map((remedy, i) => (
+                    <div key={i} className="flex items-start space-x-2 text-[12px] text-slate-600">
+                      <div className="mt-1 flex-shrink-0 w-1 h-1 rounded-full bg-emerald-400" />
+                      <span>{remedy}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {reportData.action_plan && reportData.action_plan.length > 0 && (
+              <div className="rounded-xl p-4 bg-indigo-50/50 border border-indigo-100">
+                <h3 className="text-[13px] font-bold text-indigo-700 mb-3 flex items-center space-x-2"><Calendar size={14} /><span>Future Action Plan</span></h3>
+                <div className="space-y-2">
+                  {reportData.action_plan.map((step, i) => (
+                    <div key={i} className="flex items-start space-x-2 text-[12px] text-slate-600">
+                      <div className="mt-1 flex-shrink-0 w-1 h-1 rounded-full bg-indigo-400" />
+                      <span>{step}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
