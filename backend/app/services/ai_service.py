@@ -187,35 +187,67 @@ Respond with ONLY valid JSON matching this structure."""
 
 
 def generate_chat_reply(user_message: str, intent: IntentOutput) -> str:
-    """Generate a user-friendly reply based on the extracted intent."""
-    parts = []
+    """Generate a user-friendly reply based on the extracted intent or use LLM for casual talk."""
+    if intent.procedure or intent.condition:
+        parts = []
+        if intent.procedure:
+            parts.append(f"I found information about **{intent.procedure}**")
+        elif intent.condition:
+            parts.append(f"I understand you're concerned about **{intent.condition}**")
 
-    if intent.procedure:
-        parts.append(f"I found information about **{intent.procedure}**")
-    elif intent.condition:
-        parts.append(f"I understand you're concerned about **{intent.condition}**")
-    else:
-        parts.append("I'm here to help with your healthcare query")
+        if intent.location:
+            parts.append(f"in **{intent.location}**")
 
-    if intent.location:
-        parts.append(f"in **{intent.location}**")
+        reply = " ".join(parts) + "."
 
-    reply = " ".join(parts) + "."
+        details = []
+        if intent.budget_inr:
+            details.append(f"Budget: ₹{intent.budget_inr:,}")
+        if intent.age:
+            details.append(f"Age: {intent.age}")
+        if intent.comorbidities:
+            details.append(f"Conditions: {', '.join(intent.comorbidities)}")
+        if intent.urgency:
+            details.append(f"Urgency: {intent.urgency}")
 
-    details = []
-    if intent.budget_inr:
-        details.append(f"Budget: ₹{intent.budget_inr:,}")
-    if intent.age:
-        details.append(f"Age: {intent.age}")
-    if intent.comorbidities:
-        details.append(f"Conditions: {', '.join(intent.comorbidities)}")
-    if intent.urgency:
-        details.append(f"Urgency: {intent.urgency}")
+        if details:
+            reply += " " + " | ".join(details) + "."
 
-    if details:
-        reply += " " + " | ".join(details) + "."
+        if intent.procedure:
+            reply += "\n\nI've pulled up cost estimates and top-rated providers for you — check the panel on the right."
+        reply += "\n\n⚕️ *This is decision-support information, not medical advice.*"
+        return reply
 
-    reply += "\n\nI've pulled up cost estimates and top-rated providers for you — check the panel on the right."
-    reply += "\n\n⚕️ *This is decision-support information, not medical advice.*"
+    # Casual talk (no procedure or condition detected)
+    try:
+        client = initialize_client()
+        prompt = f"You are Clinivue Assistant, a friendly and helpful healthcare AI guide. The user said: '{user_message}'. Respond naturally, nicely, and concisely (1-2 sentences). Do not provide any medical advice. If they say hi, greet them back and ask how you can help with their healthcare needs."
+        
+        for attempt in range(2):
+            try:
+                response = client.models.generate_content(
+                    model='gemini-2.0-flash',
+                    contents=prompt,
+                )
+                if response.text:
+                    return response.text
+            except Exception as e:
+                error_str = str(e)
+                if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                    if settings.GROQ_API_KEY:
+                        groq_client = Groq(api_key=settings.GROQ_API_KEY)
+                        groq_response = groq_client.chat.completions.create(
+                            model="llama-3.3-70b-versatile",
+                            messages=[{"role": "system", "content": "You are Clinivue Assistant, a friendly healthcare AI guide. Respond concisely in 1-2 sentences. No medical advice."}, 
+                                      {"role": "user", "content": user_message}],
+                            temperature=0.7,
+                        )
+                        return groq_response.choices[0].message.content
+                elif "503" in error_str or "UNAVAILABLE" in error_str:
+                    time.sleep(1)
+                    continue
+                break
+    except Exception as e:
+        print(f"[AI Service] Casual reply fallback error: {e}")
 
-    return reply
+    return "I'm here to help with your healthcare query. How can I assist you today?"
