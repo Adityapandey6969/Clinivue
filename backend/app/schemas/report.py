@@ -33,5 +33,7 @@ class ReportResult(BaseModel):
     parameters: Optional[List[ReportParameter]] = None
     summary: Optional[str] = None
     recommendation: Optional[str] = None
+    home_remedies: Optional[List[str]] = None
+    action_plan: Optional[List[str]] = None
     disclaimer: str = "This is decision-support information, not medical advice. Always consult a qualified healthcare professional."
     progress_pct: Optional[int] = None

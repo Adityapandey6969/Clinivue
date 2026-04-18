@@ -1,6 +1,7 @@
 import json
 import re
 import time
+from typing import Optional
 from google import genai
 from google.genai import types
 from groq import Groq
@@ -11,7 +12,7 @@ def initialize_client():
     return genai.Client(api_key=settings.GEMINI_API_KEY)
 
 
-def _try_gemini_extract(client, prompt: str, max_retries: int = 3) -> dict | None:
+def _try_gemini_extract(client, prompt: str, max_retries: int = 3) -> Optional[dict]:
     """Try calling Gemini with retries on 503/overload errors."""
     for attempt in range(max_retries):
         try:

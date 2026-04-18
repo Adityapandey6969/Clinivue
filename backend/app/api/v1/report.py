@@ -20,6 +20,7 @@ ALLOWED_CONTENT_TYPES = {
     "image/jpeg",
     "image/png",
     "image/jpg",
+    "text/plain",
 }
 
 MAX_FILE_SIZE_MB = 20
@@ -88,4 +89,6 @@ async def get_report(report_id: str):
         parameters=report.get("parameters"),
         summary=report.get("summary"),
         recommendation=report.get("recommendation"),
+        home_remedies=report.get("home_remedies"),
+        action_plan=report.get("action_plan"),
     )

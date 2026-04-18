@@ -10,7 +10,7 @@ Hard constraints (non-negotiable) from the PDR:
 """
 
 import re
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 # ─── Restricted vocabulary ───────────────────────────────────────────────
 RESTRICTED_VERBS = [
@@ -86,81 +86,79 @@ def sanitize_llm_output(text: str) -> Tuple[str, List[str]]:
     return sanitized, blocked
 
 
-def generate_safe_recommendation(parameters: list) -> str:
+def generate_safe_recommendation(parameters: list) -> Dict[str, any]:
     """
     Generate guardrailed recommendations from parsed report parameters.
-    Produces: specialty routing, lifestyle suggestions, Ayurveda/home remedies,
-    and 'when to consult' triggers.
+    Returns a dictionary with structured insights.
     """
     high_severity = [p for p in parameters if p.get("severity") == "high"]
     moderate_severity = [p for p in parameters if p.get("severity") == "moderate"]
     low_severity = [p for p in parameters if p.get("severity") == "low" and p.get("status") != "normal"]
 
-    parts = []
+    recommendation_parts = []
+    action_plan = []
+    home_remedies = []
 
-    # "When to consult a doctor" triggers
+    # --- 1. Emergency Triggers ---
     if high_severity:
         names = ", ".join(p["name"] for p in high_severity)
-        parts.append(
-            f"🔴 **Immediate consultation recommended.** The following parameters show "
-            f"significantly abnormal values: {names}. Please schedule an appointment with "
-            f"the relevant specialist as soon as possible."
+        recommendation_parts.append(
+            f"🔴 **Action required.** Some parameters show significantly abnormal values: {names}. "
+            f"Please schedule a consultation with the relevant specialist as soon as possible."
         )
 
-    # Specialty routing
+    # --- 2. Specialty Routing & Action Plan ---
     specialties = set()
     for p in high_severity + moderate_severity:
         name_lower = p["name"].lower()
         if any(k in name_lower for k in ["hba1c", "glucose", "sugar", "insulin"]):
             specialties.add("Endocrinologist")
+            action_plan.append("Consult an Endocrinologist for blood sugar management.")
         elif any(k in name_lower for k in ["cholesterol", "ldl", "hdl", "triglyceride"]):
             specialties.add("Cardiologist")
+            action_plan.append("Schedule a lipid profile re-test in 8-12 weeks.")
+            action_plan.append("Consult a Cardiologist regarding cholesterol levels.")
         elif any(k in name_lower for k in ["creatinine", "urea", "bun", "egfr"]):
             specialties.add("Nephrologist")
+            action_plan.append("Consult a Nephrologist for kidney function review.")
         elif any(k in name_lower for k in ["hemoglobin", "rbc", "wbc", "platelet"]):
             specialties.add("Hematologist")
+            action_plan.append("Consult a Hematologist or General Physician regarding blood count.")
         elif any(k in name_lower for k in ["tsh", "t3", "t4", "thyroid"]):
             specialties.add("Endocrinologist")
+            action_plan.append("Consult an Endocrinologist for thyroid evaluation.")
         elif any(k in name_lower for k in ["alt", "ast", "bilirubin", "albumin"]):
-            specialties.add("Hepatologist / Gastroenterologist")
+            specialties.add("Gastroenterologist")
+            action_plan.append("Consult a Gastroenterologist for liver health assessment.")
 
-    if specialties:
-        parts.append(
-            f"🏥 **Suggested specialties:** {', '.join(sorted(specialties))}."
-        )
-
-    # Lifestyle suggestions (safe, non-prescriptive)
+    # --- 3. Lifestyle Suggestions ---
     if moderate_severity or low_severity:
-        parts.append(
-            "💡 **General wellness suggestions:** Consider maintaining a balanced diet, "
-            "regular physical activity, adequate hydration, and sufficient sleep. "
-            "These are general lifestyle suggestions and not specific medical advice."
-        )
+        action_plan.append("Increase daily water intake to 2.5–3 liters.")
+        action_plan.append("Maintain at least 30 minutes of moderate physical activity daily.")
+        action_plan.append("Focus on a balanced diet rich in whole grains and fresh vegetables.")
 
-    # ─── Ayurveda & Home Remedies ────────────────────────────────────────
+    # --- 4. Ayurveda & Home Remedies ---
     abnormal = high_severity + moderate_severity + low_severity
     if abnormal:
-        remedies = _get_ayurveda_remedies(abnormal)
-        if remedies:
-            remedy_lines = "\n".join(f"  • {r}" for r in remedies)
-            parts.append(
-                f"🌿 **Traditional & Home Remedies**\n"
-                f"These are well-known Ayurvedic and home wellness practices that may support your health:\n\n"
-                f"{remedy_lines}\n\n"
-                f"⚠️ *These are traditional wellness practices, not substitutes for medical treatment. "
-                f"Consult your doctor before starting any remedy, especially if you are on medication.*"
-            )
+        home_remedies = _get_ayurveda_remedies(abnormal)
 
-    if not parts:
-        parts.append(
+    # Fallback if everything is normal
+    if not recommendation_parts and not abnormal:
+        recommendation_parts.append(
             "✅ All parameters appear within normal ranges. Continue routine health check-ups "
             "as recommended by your physician."
         )
 
-    # Mandatory disclaimer
-    parts.append(f"\n⚕️ *{MANDATORY_DISCLAIMER}*")
+    # Combine recommendation text
+    full_text = "\n\n".join(recommendation_parts)
+    if not full_text:
+        full_text = "Analysis complete. Please see the detailed sections below for insights and next steps."
 
-    return "\n\n".join(parts)
+    return {
+        "recommendation_text": full_text + f"\n\n⚕️ *{MANDATORY_DISCLAIMER}*",
+        "home_remedies": home_remedies,
+        "action_plan": action_plan if action_plan else ["Continue regular health monitoring."]
+    }
 
 
 # ─── Ayurveda & Home Remedy Knowledge Base ───────────────────────────────

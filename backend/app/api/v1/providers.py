@@ -5,6 +5,7 @@ No mock data. Returns actual hospitals near the user's city.
 
 import json
 import time
+from typing import Optional
 from fastapi import APIRouter
 from google import genai
 from google.genai import types as genai_types
@@ -17,7 +18,7 @@ from app.core.config import settings
 router = APIRouter()
 
 
-def _fetch_real_hospitals(procedure: str, city: str, budget_inr: int | None) -> list | None:
+def _fetch_real_hospitals(procedure: str, city: str, budget_inr: Optional[int]) -> Optional[list]:
     """Use Gemini with Google Search grounding to find real hospitals."""
     client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
