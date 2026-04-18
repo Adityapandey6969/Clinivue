@@ -152,14 +152,14 @@ export default function ChatInterface({ onContextUpdate, userUid, sessionId, onN
       
       const formattedParts = parts.map((part, i) => {
         if (part.startsWith('**') && part.endsWith('**')) {
-          return <strong key={i} className="font-bold text-slate-900">{part.slice(2, -2)}</strong>;
+          return <strong key={i} className="font-bold text-slate-900 dark:text-white">{part.slice(2, -2)}</strong>;
         }
         if ((part.startsWith('*') && part.endsWith('*')) || (part.startsWith('_') && part.endsWith('_'))) {
-          return <em key={i} className="italic text-slate-800">{part.slice(1, -1)}</em>;
+          return <em key={i} className="italic text-slate-800 dark:text-slate-200">{part.slice(1, -1)}</em>;
         }
         const linkMatch = part.match(/\[(.*?)\]\((.*?)\)/);
         if (linkMatch) {
-          return <a key={i} href={linkMatch[2]} target="_blank" rel="noopener noreferrer" className="text-teal-600 hover:text-teal-700 underline underline-offset-2">{linkMatch[1]}</a>;
+          return <a key={i} href={linkMatch[2]} target="_blank" rel="noopener noreferrer" className="text-teal-600 dark:text-teal-400 hover:text-teal-700 dark:hover:text-teal-300 underline underline-offset-2">{linkMatch[1]}</a>;
         }
         return <span key={i}>{part}</span>;
       });
@@ -167,7 +167,7 @@ export default function ChatInterface({ onContextUpdate, userUid, sessionId, onN
       if (isListItem) {
         return (
           <div key={lineIdx} className="flex items-start mt-1 pl-2">
-            <span className="mr-2 text-slate-400 font-bold">•</span>
+            <span className="mr-2 text-slate-400 dark:text-slate-500 font-bold">•</span>
             <span>{formattedParts}</span>
           </div>
         );

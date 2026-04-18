@@ -163,11 +163,6 @@ export default function ReportUploader({ userUid }: { userUid: string }) {
                 {reportData.parameters.map((p, idx) => {
                   const cfg = STATUS_CFG[p.status] || STATUS_CFG.normal;
                   const sev = SEV_STYLE[p.severity] || SEV_STYLE.normal;
-                  
-                  // Make dynamic backgrounds slightly transparent in dark mode
-                  const isDark = document.documentElement.classList.contains('dark');
-                  const bgClass = isDark ? cfg.bg.replace('50', '500/10') : cfg.bg;
-                  const sevClass = isDark ? sev.replace(/50 /g, '500/10 ').replace(/200/g, '500/20').replace(/700/g, '400') : sev;
 
                   return (
                     <motion.div key={idx} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: idx * 0.05 }}

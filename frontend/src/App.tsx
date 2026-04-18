@@ -74,10 +74,10 @@ function App() {
     return (
       <div className="h-screen warm-bg flex items-center justify-center">
         <div className="flex flex-col items-center space-y-4">
-          <div className="p-3 bg-white rounded-2xl shadow-lg shadow-teal-100 border border-slate-50 flex items-center justify-center">
+          <div className="p-3 bg-white dark:bg-slate-800 rounded-2xl shadow-lg shadow-teal-100 dark:shadow-none border border-slate-50 dark:border-white/10 flex items-center justify-center">
             <img src="/logo.png" alt="Clinivue" className="w-10 h-10 animate-pulse object-contain" />
           </div>
-          <p className="text-sm font-semibold text-slate-400">Loading Clinivue...</p>
+          <p className="text-sm font-semibold text-slate-400 dark:text-slate-500">Loading Clinivue...</p>
         </div>
       </div>
     );
