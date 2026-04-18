@@ -144,7 +144,7 @@ function App() {
             {showSettings && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowSettings(false)}></div>
-                <div className="absolute right-0 mt-2 w-56 card rounded-2xl shadow-xl border-slate-100 dark:border-white/10 overflow-hidden z-50 animate-slide-up bg-white dark:bg-slate-900">
+                <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden z-50 animate-slide-up">
                   <div className="px-4 py-3 border-b border-slate-50 dark:border-white/5">
                     <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Settings</p>
                   </div>
