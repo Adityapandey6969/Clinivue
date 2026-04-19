@@ -3,7 +3,7 @@ import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChang
 import { getFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
-  apiKey: "REDACTED_FIREBASE_KEY",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: "clinivue-d321c.firebaseapp.com",
   projectId: "clinivue-d321c",
   storageBucket: "clinivue-d321c.firebasestorage.app",
