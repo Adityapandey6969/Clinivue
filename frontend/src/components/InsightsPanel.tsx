@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ShieldCheck, IndianRupee, MapPin, Building2, AlertTriangle, Star } from 'lucide-react';
 import { motion } from 'framer-motion';
 

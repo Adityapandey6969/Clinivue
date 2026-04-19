@@ -9,7 +9,7 @@ from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 
 from app.schemas.report import ReportUploadResponse, ReportResult
-from app.services.report_service import start_report_processing, get_report_status
+from app.services.report_service import start_report_processing, get_report_status, cancel_report
 
 router = APIRouter()
 
@@ -92,3 +92,12 @@ async def get_report(report_id: str):
         home_remedies=report.get("home_remedies"),
         action_plan=report.get("action_plan"),
     )
+
+
+@router.post("/{report_id}/cancel")
+async def cancel_report_endpoint(report_id: str):
+    """Cancel an in-progress report analysis."""
+    success = cancel_report(report_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Report not found or already completed.")
+    return {"report_id": report_id, "status": "cancelled"}

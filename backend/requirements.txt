@@ -10,3 +10,5 @@ python-jose[cryptography]
 passlib[bcrypt]
 alembic
 pypdf
+groq
+requests

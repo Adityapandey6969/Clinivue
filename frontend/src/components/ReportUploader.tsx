@@ -1,10 +1,11 @@
 import React, { useState, useRef, useCallback } from 'react';
-import { Upload, FileText, Loader2, CheckCircle2, AlertTriangle, XCircle, ArrowDown, ShieldAlert, Microscope, ClipboardList, Leaf, Calendar } from 'lucide-react';
+import { Upload, FileText, Loader2, CheckCircle2, AlertTriangle, XCircle, ArrowDown, ShieldAlert, Microscope, ClipboardList, Leaf, Calendar, X, MapPin, Building2, Star, Search, ArrowRight, Activity } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 import { motion, AnimatePresence } from 'framer-motion';
 import { saveSearch } from '../lib/searchHistory';
 
 type ReportParam = { name: string; value: number; unit: string; status: string; severity: string; reference_range: number[]; explanation: string; };
-type ReportData = { report_id: string; status: string; parsed_at?: string; confidence?: number; parameters?: ReportParam[]; summary?: string; recommendation?: string; home_remedies?: string[]; action_plan?: string[]; disclaimer?: string; progress_pct?: number; };
+type ReportData = { report_id: string; status: string; parsed_at?: string; confidence?: number; parameters?: ReportParam[]; summary?: string; recommendation?: string; home_remedies?: string[]; action_plan?: string[]; health_risks?: string[]; disclaimer?: string; progress_pct?: number; };
 
 const STATUS_CFG: Record<string, { bg: string; text: string; icon: React.ReactNode }> = {
   high:   { bg: 'bg-red-50',     text: 'text-red-600',     icon: <AlertTriangle size={13} /> },
@@ -26,37 +27,104 @@ export default function ReportUploader({ userUid }: { userUid: string }) {
   const [error, setError] = useState<string | null>(null);
   const [fileName, setFileName] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const currentReportId = useRef<string | null>(null);
+  const cancelledRef = useRef(false);
+
+  // Hospital Recommendation States
+  const [location, setLocation] = useState('');
+  const [hospitals, setHospitals] = useState<any[]>([]);
+  const [hospitalsLoading, setHospitalsLoading] = useState(false);
+  const [hospitalError, setHospitalError] = useState<string | null>(null);
+
+  const fetchHospitals = async () => {
+    if (!location.trim()) return;
+    setHospitalsLoading(true);
+    setHospitalError(null);
+    try {
+      // Defaulting procedure to 'Specialist Consultation' as it's the safest bet for a generic lab report issue.
+      const res = await fetch('http://localhost:8000/api/v1/providers/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ procedure: 'Specialist Consultation', location, budget_inr: null })
+      });
+      if (!res.ok) throw new Error('Failed to fetch hospitals');
+      const data = await res.json();
+      if (data.providers && data.providers.length > 0 && data.providers[0]._error !== "quota_exceeded") {
+        setHospitals(data.providers);
+      } else {
+        setHospitalError(data.confidence?.assumptions?.[0] || 'Could not find hospitals in this area.');
+        setHospitals([]);
+      }
+    } catch (err: any) {
+      setHospitalError(err.message || 'Error fetching hospitals.');
+      setHospitals([]);
+    } finally {
+      setHospitalsLoading(false);
+    }
+  };
 
   const pollReport = useCallback(async (reportId: string) => {
     let attempt = 0;
     const poll = async () => {
+      if (cancelledRef.current) return;
       attempt++;
       try {
         const res = await fetch(`http://localhost:8000/api/v1/report/${reportId}`);
         const data = await res.json();
-        if (data.status === 'complete' || data.status === 'failed') {
+        if (cancelledRef.current) return;
+        if (data.status === 'complete' || data.status === 'failed' || data.status === 'cancelled') {
+          if (data.status === 'cancelled') {
+            setReportData(null); setUploading(false);
+            return;
+          }
           setReportData(data);
           setUploading(false);
           if (data.status === 'complete') {
-            saveSearch(userUid, 'report', fileName, { summary: data.summary, parameters: data.parameters?.length });
+            saveSearch(userUid, 'report', fileName, {
+              summary: data.summary,
+              parameters: data.parameters,
+              parameterCount: data.parameters?.length || 0,
+              confidence: data.confidence,
+              recommendation: data.recommendation,
+            });
           }
           return;
         }
         setReportData(data);
-        if (attempt < 30) setTimeout(poll, 1000); else { setError('Timed out.'); setUploading(false); }
+        if (attempt < 120) setTimeout(poll, 1500); else { setError('Analysis timed out. Please try again.'); setUploading(false); }
       } catch { setError('Connection lost.'); setUploading(false); }
     };
     poll();
   }, []);
 
+  const handleCancel = async () => {
+    cancelledRef.current = true;
+    const reportId = currentReportId.current;
+    if (reportId) {
+      try {
+        await fetch(`http://localhost:8000/api/v1/report/${reportId}/cancel`, { method: 'POST' });
+      } catch {}
+    }
+    setUploading(false);
+    setReportData(null);
+    setFileName('');
+    setLocation('');
+    setHospitals([]);
+    setHospitalError(null);
+    currentReportId.current = null;
+  };
+
   const handleUpload = async (file: File) => {
     setError(null); setReportData(null); setFileName(file.name); setUploading(true);
+    setLocation(''); setHospitals([]); setHospitalError(null);
+    cancelledRef.current = false;
     const formData = new FormData();
     formData.append('file', file);
     try {
       const res = await fetch('http://localhost:8000/api/v1/report/upload', { method: 'POST', body: formData });
       if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Upload failed'); }
       const data = await res.json();
+      currentReportId.current = data.report_id;
       setReportData({ report_id: data.report_id, status: 'processing', progress_pct: 5 });
       pollReport(data.report_id);
     } catch (err: any) { setError(err.message); setUploading(false); }
@@ -111,7 +179,16 @@ export default function ReportUploader({ userUid }: { userUid: string }) {
                   <Loader2 className="w-4 h-4 text-teal-500 dark:text-teal-400 animate-spin" />
                   <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Analyzing {fileName}</span>
                 </div>
-                <span className="text-xs font-bold text-teal-600 dark:text-teal-400">{reportData?.progress_pct || 0}%</span>
+                <div className="flex items-center space-x-3">
+                  <span className="text-xs font-bold text-teal-600 dark:text-teal-400">{reportData?.progress_pct || 0}%</span>
+                  <button
+                    onClick={handleCancel}
+                    className="flex items-center space-x-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-500/20 hover:bg-red-100 dark:hover:bg-red-500/20 transition-colors"
+                  >
+                    <X size={12} />
+                    <span>Cancel</span>
+                  </button>
+                </div>
               </div>
               <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
                 <motion.div className="h-full bg-gradient-to-r from-teal-400 to-emerald-400 rounded-full"
@@ -149,8 +226,11 @@ export default function ReportUploader({ userUid }: { userUid: string }) {
             </div>
 
             {reportData.summary && (
-              <div className="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-4 border border-slate-100 dark:border-white/5">
-                <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">📋 {reportData.summary}</p>
+              <div className="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-4 border border-slate-100 dark:border-white/5 flex items-start space-x-2">
+                <span className="text-xl">📋</span>
+                <div className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed overflow-hidden prose dark:prose-invert max-w-none">
+                  <ReactMarkdown>{reportData.summary}</ReactMarkdown>
+                </div>
               </div>
             )}
 
@@ -190,7 +270,25 @@ export default function ReportUploader({ userUid }: { userUid: string }) {
             {reportData.recommendation && (
               <div className="rounded-xl p-4 bg-teal-50/50 dark:bg-teal-900/20 border border-teal-100 dark:border-teal-500/20">
                 <h3 className="text-[13px] font-bold text-teal-700 dark:text-teal-400 mb-2 flex items-center space-x-2"><ShieldAlert size={14} /><span>Professional Guidance</span></h3>
-                <div className="text-[13px] text-slate-600 dark:text-slate-400 leading-relaxed whitespace-pre-line">{reportData.recommendation}</div>
+                <div className="text-[13px] text-slate-600 dark:text-slate-400 leading-relaxed whitespace-pre-line prose dark:prose-invert prose-sm max-w-none prose-p:my-1">
+                  <ReactMarkdown>{reportData.recommendation}</ReactMarkdown>
+                </div>
+              </div>
+            )}
+
+            {reportData.health_risks && reportData.health_risks.length > 0 && (
+              <div className="rounded-xl p-4 bg-red-50/50 dark:bg-red-900/10 border border-red-100 dark:border-red-500/20">
+                <h3 className="text-[13px] font-bold text-red-700 dark:text-red-400 mb-3 flex items-center space-x-2"><Activity size={14} /><span>Health Risks & Consequences</span></h3>
+                <div className="space-y-2">
+                  {reportData.health_risks.map((risk, i) => (
+                    <div key={i} className="flex items-start space-x-2 text-[12px] text-slate-600 dark:text-slate-400">
+                      <div className="mt-1 flex-shrink-0 w-1 h-1 rounded-full bg-red-400 dark:bg-red-500" />
+                      <div className="prose dark:prose-invert prose-sm max-w-none prose-p:my-0 prose-strong:text-slate-700 dark:prose-strong:text-slate-200">
+                        <ReactMarkdown>{risk}</ReactMarkdown>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -222,7 +320,84 @@ export default function ReportUploader({ userUid }: { userUid: string }) {
               </div>
             )}
 
-            <p className="text-center text-[10px] text-slate-400 dark:text-slate-500 py-1">⚕️ {reportData.disclaimer}</p>
+            {reportData.parameters && reportData.parameters.some(p => p.status !== 'normal') && (
+              <div className="rounded-xl p-4 bg-white dark:bg-slate-900/40 border border-slate-200 dark:border-white/10 shadow-sm">
+                <h3 className="text-[13px] font-bold text-slate-800 dark:text-slate-100 mb-3 flex items-center space-x-2"><Building2 size={14} className="text-blue-500" /><span>Find Specialists Near You</span></h3>
+                
+                <div className="flex items-center space-x-2 mb-4">
+                  <div className="relative flex-1">
+                    <MapPin size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input 
+                      type="text" 
+                      placeholder="Enter your city (e.g. Mumbai)" 
+                      value={location}
+                      onChange={(e) => setLocation(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && fetchHospitals()}
+                      className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-lg text-sm text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                    />
+                  </div>
+                  <button 
+                    onClick={fetchHospitals}
+                    disabled={!location.trim() || hospitalsLoading}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                  >
+                    {hospitalsLoading ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
+                    <span>Search</span>
+                  </button>
+                </div>
+
+                {hospitalError && (
+                  <div className="p-3 bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 text-xs rounded-lg border border-red-100 dark:border-red-500/20 mb-3">
+                    {hospitalError}
+                  </div>
+                )}
+
+                {hospitals.length > 0 && (
+                  <div className="space-y-3">
+                    {hospitals.map((h, i) => (
+                      <div key={i} className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-100 dark:border-white/5 hover:border-blue-200 dark:hover:border-blue-500/30 transition-colors">
+                        <div className="flex justify-between items-start mb-1">
+                          <a 
+                            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${h.name}, ${h.city || location}`)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[13px] font-bold text-slate-800 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 transition-colors underline decoration-slate-200 dark:decoration-slate-700 hover:decoration-blue-400 dark:hover:decoration-blue-500 underline-offset-2"
+                            title="View on Google Maps"
+                          >
+                            {h.name}
+                          </a>
+                          <div className="flex items-center space-x-1 bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded text-[10px] font-bold">
+                            <Star size={10} className="fill-current" />
+                            <span>{(h.score_breakdown?.reputation * 5).toFixed(1) || '4.5'}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-2 text-[11px] text-slate-500 dark:text-slate-400 mb-2">
+                          <span className="flex items-center"><MapPin size={10} className="mr-1" /> {h.score_breakdown?.distance_km} km away</span>
+                          <span>•</span>
+                          <span className="capitalize">{h.price_tier} Budget</span>
+                          {h.nabh_accredited && (
+                            <>
+                              <span>•</span>
+                              <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center"><CheckCircle2 size={10} className="mr-0.5" /> NABH</span>
+                            </>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed bg-white dark:bg-slate-900/50 p-2 rounded border border-slate-100 dark:border-white/5">
+                          {h.why_this_hospital}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex items-center justify-center space-x-1.5 py-1 text-slate-400 dark:text-slate-500">
+              <span className="text-[10px]">⚕️</span>
+              <div className="text-[10px] prose dark:prose-invert prose-sm prose-p:my-0">
+                <ReactMarkdown>{reportData.disclaimer || '*This is decision-support information, not medical advice. Always consult a qualified healthcare professional.*'}</ReactMarkdown>
+              </div>
+            </div>
 
             <button onClick={() => { setReportData(null); setError(null); setFileName(''); }}
               className="w-full py-3 bg-slate-50 dark:bg-slate-800/50 hover:bg-teal-50 dark:hover:bg-teal-900/30 border border-slate-200 dark:border-white/10 hover:border-teal-200 dark:hover:border-teal-500/50 rounded-xl text-sm text-slate-600 dark:text-slate-300 hover:text-teal-700 dark:hover:text-teal-300 transition-all font-semibold">

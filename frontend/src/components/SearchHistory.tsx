@@ -152,9 +152,57 @@ export default function SearchHistory({ userUid }: SearchHistoryProps) {
 
                   {expandedSearchId === entry.id && (
                     <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} className="px-4 pb-3 border-t border-slate-50 dark:border-white/5 bg-slate-50/30 dark:bg-transparent">
-                      <pre className="text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/80 rounded-lg p-3 mt-2 overflow-x-auto max-h-48 whitespace-pre-wrap border border-slate-100 dark:border-white/5">
-                        {typeof entry.result === 'string' ? entry.result : JSON.stringify(entry.result, null, 2)}
-                      </pre>
+                      <div className="mt-2 space-y-2">
+                        {entry.type === 'report' && entry.result?.summary ? (
+                          <>
+                            {/* Summary */}
+                            <div className="bg-white dark:bg-slate-800/60 rounded-lg p-3 border border-slate-100 dark:border-white/5">
+                              <p className="text-[12px] text-slate-600 dark:text-slate-300 leading-relaxed">📋 {entry.result.summary}</p>
+                            </div>
+
+                            {/* Parameters */}
+                            {entry.result.parameters && entry.result.parameters.length > 0 && (
+                              <div className="bg-white dark:bg-slate-800/60 rounded-lg border border-slate-100 dark:border-white/5 overflow-hidden">
+                                <div className="px-3 py-2 bg-slate-50 dark:bg-slate-800 border-b border-slate-100 dark:border-white/5">
+                                  <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400">{entry.result.parameters.length} Parameters</p>
+                                </div>
+                                <div className="divide-y divide-slate-50 dark:divide-white/5">
+                                  {entry.result.parameters.map((p: any, i: number) => (
+                                    <div key={i} className="px-3 py-2 flex items-center justify-between">
+                                      <span className="text-[11px] font-medium text-slate-700 dark:text-slate-300">{p.name}</span>
+                                      <div className="flex items-center space-x-2">
+                                        <span className="text-[11px] font-bold text-slate-800 dark:text-slate-100">{p.value} <span className="text-slate-400 dark:text-slate-500 font-normal">{p.unit}</span></span>
+                                        <span className={`text-[8px] uppercase tracking-widest font-bold px-1.5 py-0.5 rounded-full border ${
+                                          p.status === 'high' ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-500/10 dark:text-red-400 dark:border-red-500/20'
+                                          : p.status === 'low' ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/20'
+                                          : 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20'
+                                        }`}>{p.status}</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Recommendation */}
+                            {entry.result.recommendation && (
+                              <div className="bg-teal-50/50 dark:bg-teal-900/20 rounded-lg p-3 border border-teal-100 dark:border-teal-500/20">
+                                <p className="text-[11px] font-bold text-teal-700 dark:text-teal-400 mb-1">💡 Recommendation</p>
+                                <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed whitespace-pre-line">{entry.result.recommendation}</p>
+                              </div>
+                            )}
+
+                            {/* Confidence */}
+                            {entry.result.confidence !== undefined && (
+                              <p className="text-[10px] text-slate-400 dark:text-slate-500 text-right">Confidence: {(entry.result.confidence * 100).toFixed(0)}%</p>
+                            )}
+                          </>
+                        ) : (
+                          <pre className="text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/80 rounded-lg p-3 overflow-x-auto max-h-48 whitespace-pre-wrap border border-slate-100 dark:border-white/5">
+                            {typeof entry.result === 'string' ? entry.result : JSON.stringify(entry.result, null, 2)}
+                          </pre>
+                        )}
+                      </div>
                     </motion.div>
                   )}
                 </motion.div>

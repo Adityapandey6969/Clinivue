@@ -1,11 +1,11 @@
-from typing import List, Optional
+from typing import List, Optional, Union
 from pydantic import BaseModel
 from datetime import datetime
 
 
 class ReportParameter(BaseModel):
     name: str
-    value: float
+    value: Union[float, str]
     unit: str
     status: str          # "low" | "normal" | "high"
     severity: str        # "low" | "moderate" | "high"
@@ -35,5 +35,6 @@ class ReportResult(BaseModel):
     recommendation: Optional[str] = None
     home_remedies: Optional[List[str]] = None
     action_plan: Optional[List[str]] = None
+    health_risks: Optional[List[str]] = None
     disclaimer: str = "This is decision-support information, not medical advice. Always consult a qualified healthcare professional."
     progress_pct: Optional[int] = None

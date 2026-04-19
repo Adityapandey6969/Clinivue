@@ -10,7 +10,11 @@ Hard constraints (non-negotiable) from the PDR:
 """
 
 import re
+import json
 from typing import List, Tuple, Dict
+from google import genai
+from google.genai import types as genai_types
+from app.core.config import settings
 
 # ─── Restricted vocabulary ───────────────────────────────────────────────
 RESTRICTED_VERBS = [
@@ -149,6 +153,9 @@ def generate_safe_recommendation(parameters: list) -> Dict[str, any]:
             "as recommended by your physician."
         )
 
+    # --- 5. Health Consequences / Risks ---
+    health_risks = _get_health_risks(abnormal)
+
     # Combine recommendation text
     full_text = "\n\n".join(recommendation_parts)
     if not full_text:
@@ -157,7 +164,8 @@ def generate_safe_recommendation(parameters: list) -> Dict[str, any]:
     return {
         "recommendation_text": full_text + f"\n\n⚕️ *{MANDATORY_DISCLAIMER}*",
         "home_remedies": home_remedies,
-        "action_plan": action_plan if action_plan else ["Continue regular health monitoring."]
+        "action_plan": action_plan if action_plan else ["Continue regular health monitoring."],
+        "health_risks": health_risks,
     }
 
 
@@ -308,3 +316,80 @@ def _get_ayurveda_remedies(abnormal_params: list) -> list:
 
     return remedies[:8]  # Cap at 8 total remedies
 
+
+# ─── Health Risks & Consequences Knowledge Base ─────────────────────────
+HEALTH_RISKS = {
+    "ra factor": "Elevated Rheumatoid Factor (RA Factor) is commonly associated with Rheumatoid Arthritis and can lead to joint inflammation, stiffness, and long-term joint damage if left unmanaged.",
+    "uric acid": "High Uric Acid levels can lead to the formation of urate crystals in the joints, causing painful gout attacks and increasing the risk of kidney stones.",
+    "hba1c": "Chronically high HbA1c indicates poorly controlled blood sugar, which can lead to nerve damage (neuropathy), vision loss (retinopathy), and increased cardiovascular risk.",
+    "glucose": "Elevated glucose increases the risk of developing type 2 diabetes and associated metabolic disorders.",
+    "cholesterol": "High total cholesterol contributes to plaque buildup in arteries (atherosclerosis), significantly increasing the risk of heart attacks and strokes.",
+    "ldl": "High LDL ('bad') cholesterol directly contributes to arterial blockages and cardiovascular disease.",
+    "hdl": "Low HDL ('good') cholesterol means your body is less efficient at clearing 'bad' cholesterol from your bloodstream, increasing heart disease risk.",
+    "triglyceride": "High triglycerides, often coupled with low HDL or high LDL, increase the risk of acute pancreatitis and heart disease.",
+    "creatinine": "Elevated creatinine suggests impaired kidney function, which can lead to chronic kidney disease or failure to filter toxins from the blood.",
+    "urea": "High urea (BUN) levels indicate reduced kidney filtering capacity and can result in uremia (toxin buildup in the blood).",
+    "hemoglobin": "Low hemoglobin (anemia) reduces the oxygen-carrying capacity of blood, leading to chronic fatigue, weakness, and shortness of breath.",
+    "tsh": "Abnormal TSH levels disrupt metabolism. High TSH indicates hypothyroidism (weight gain, fatigue), while low TSH indicates hyperthyroidism (weight loss, rapid heart rate).",
+    "alt": "Elevated ALT indicates liver cell damage or inflammation, potentially leading to fatty liver disease, hepatitis, or liver cirrhosis.",
+    "ast": "Elevated AST suggests damage to the liver, heart, or skeletal muscles.",
+    "bilirubin": "High bilirubin can cause jaundice (yellowing of skin/eyes) and indicates liver dysfunction or bile duct obstruction.",
+    "vitamin d": "Severe Vitamin D deficiency weakens bones (osteoporosis), impairs immune function, and is linked to chronic fatigue.",
+    "iron": "Iron deficiency leads to anemia, causing lethargy, pale skin, and impaired cognitive function.",
+    "calcium": "Low calcium weakens bone density over time and can cause muscle cramps and cardiac arrhythmias.",
+}
+
+def _get_health_risks(abnormal_params: list) -> list:
+    """Map abnormal parameters to their clinical consequences/risks dynamically using Gemini + Google Search."""
+    if not abnormal_params:
+        return []
+
+    try:
+        client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        
+        # Build a list of issues to search
+        issues_list = [f"{p.get('status', 'abnormal')} {p['name']} (value: {p['value']} {p.get('unit', '')})" for p in abnormal_params]
+        issues_text = "\n".join([f"- {issue}" for issue in issues_list])
+
+        prompt = f"""You are a medical explainer. Search the web for the medical consequences and health risks of the following abnormal lab results:
+
+{issues_text}
+
+For each abnormal parameter, provide a 1-2 sentence explanation of what health risks or consequences this specific abnormality can lead to if left unmanaged.
+
+Return ONLY a valid JSON array of strings. Each string should be formatted like: "**[High/Low] [Parameter Name]**: [Consequence explanation]"
+Do NOT include any markdown blocks or intro text, just the raw JSON array.
+"""
+
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt,
+            config=genai_types.GenerateContentConfig(
+                response_mime_type="application/json",
+                tools=[genai_types.Tool(
+                    google_search=genai_types.GoogleSearch()
+                )],
+            ),
+        )
+        
+        data = json.loads(response.text)
+        if isinstance(data, list):
+            return data
+            
+    except Exception as e:
+        print(f"[SafetyClassifier] Error fetching dynamic health risks: {e}")
+        
+    # Fallback to local hardcoded dictionary if API fails
+    risks = []
+    seen = set()
+
+    for p in abnormal_params:
+        name_lower = p["name"].lower().strip()
+        for key, consequence in HEALTH_RISKS.items():
+            if key in name_lower and key not in seen:
+                seen.add(key)
+                direction = "Low" if p.get("status") == "low" else "Elevated"
+                risks.append(f"**{direction} {p['name']}**: {consequence}")
+                break
+
+    return risks

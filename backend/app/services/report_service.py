@@ -15,10 +15,13 @@ import uuid
 import time
 import threading
 import io
+import base64
 import pypdf
 import subprocess
 import os
+import sys
 import tempfile
+import requests
 from typing import Dict, List, Optional
 from datetime import datetime, timezone
 
@@ -83,8 +86,12 @@ def _get_reference(test_name: str, sex: str = "any"):
     return None, ""
 
 
-def _determine_status_severity(value: float, ref_range: tuple):
+def _determine_status_severity(value, ref_range: tuple):
     """Flag value as low/normal/high with severity sub-levels."""
+    if isinstance(value, str):
+        # We cannot numerically compare string results (like "Nil", "Clear", "Absent")
+        return "normal", "normal"
+
     min_val, max_val = ref_range
     if min_val <= value <= max_val:
         return "normal", "normal"
@@ -106,6 +113,113 @@ def _determine_status_severity(value: float, ref_range: tuple):
     return "normal", "normal"
 
 
+def _ocr_space_extract(file_bytes: bytes, mime_type: str) -> str:
+    """
+    Use OCR.space free API to extract text from an image or PDF.
+    Tries Engine 2 first (better for documents), then falls back to Engine 1.
+    For PDFs, uses file upload approach and combines text from all pages.
+    Works cross-platform (Windows, Mac, Linux).
+    """
+    api_key = settings.OCR_SPACE_API_KEY
+    if not api_key:
+        print("[OCR.space] No API key configured, skipping.")
+        return ""
+
+    file_size_mb = len(file_bytes) / (1024 * 1024)
+    print(f"[OCR.space] Processing {file_size_mb:.1f} MB file ({mime_type})...")
+
+    # Free tier limit is 1MB — warn but still try
+    if file_size_mb > 1.0:
+        print(f"[OCR.space] Warning: File is {file_size_mb:.1f} MB (free tier limit is 1 MB). Will attempt anyway...")
+
+    # Determine file extension
+    ext = "png"
+    if "jpeg" in mime_type or "jpg" in mime_type:
+        ext = "jpg"
+    elif "pdf" in mime_type:
+        ext = "pdf"
+
+    is_pdf = "pdf" in mime_type
+    
+    # Try Engine 1 first for images (better for photos), Engine 2 first for PDFs (better for digital docs)
+    engines_to_try = [2, 1] if is_pdf else [1, 2]
+    
+    for engine in engines_to_try:
+        try:
+            if is_pdf:
+                # For PDFs: use multipart file upload (more reliable than base64)
+                files = {
+                    "file": (f"report.{ext}", io.BytesIO(file_bytes), mime_type)
+                }
+                data = {
+                    "apikey": api_key,
+                    "language": "eng",
+                    "isOverlayRequired": False,
+                    "OCREngine": engine,
+                    "scale": True,
+                    "isTable": True,
+                    "filetype": "PDF",
+                }
+                response = requests.post(
+                    "https://api.ocr.space/parse/image",
+                    files=files,
+                    data=data,
+                    timeout=90,
+                )
+            else:
+                # For images: use base64 data URI
+                b64_data = base64.b64encode(file_bytes).decode("utf-8")
+                data_uri = f"data:image/{ext};base64,{b64_data}"
+                data = {
+                    "apikey": api_key,
+                    "base64Image": data_uri,
+                    "language": "eng",
+                    "isOverlayRequired": False,
+                    "OCREngine": engine,
+                    "scale": True,
+                    "isTable": True,
+                }
+                response = requests.post(
+                    "https://api.ocr.space/parse/image",
+                    data=data,
+                    timeout=60,
+                )
+
+            result = response.json()
+
+            if result.get("IsErroredOnProcessing"):
+                err_msgs = result.get('ErrorMessage', ['Unknown'])
+                print(f"[OCR.space] Engine {engine} error: {err_msgs}")
+                # If file too large, no point trying the other engine
+                if any("size" in str(m).lower() or "limit" in str(m).lower() for m in (err_msgs if isinstance(err_msgs, list) else [err_msgs])):
+                    print("[OCR.space] File exceeds size limit for free tier.")
+                    break
+                continue
+
+            # Combine text from ALL pages (important for multi-page PDFs)
+            parsed_results = result.get("ParsedResults", [])
+            if parsed_results:
+                all_text = "\n".join(
+                    pr.get("ParsedText", "").strip()
+                    for pr in parsed_results
+                    if pr.get("ParsedText", "").strip()
+                )
+                if all_text and len(all_text) > 10:
+                    print(f"[OCR.space] Engine {engine} extracted {len(all_text)} chars from {len(parsed_results)} page(s).")
+                    print(f"[OCR.space] Preview: {all_text[:200]}...")
+                    return all_text
+                else:
+                    print(f"[OCR.space] Engine {engine} returned too little text ({len(all_text)} chars), trying next engine...")
+            else:
+                print(f"[OCR.space] Engine {engine} returned no parsed results.")
+
+        except Exception as e:
+            print(f"[OCR.space] Engine {engine} failed: {e}")
+
+    print("[OCR.space] All engines failed to extract text.")
+    return ""
+
+
 def _extract_parameters_with_llm(file_bytes: bytes, mime_type: str) -> list:
     """
     Stage 3 — Use Gemini vision/text to extract structured lab parameters from the file.
@@ -115,95 +229,141 @@ def _extract_parameters_with_llm(file_bytes: bytes, mime_type: str) -> list:
     prompt = f"""You are a medical report parser. Extract ALL lab test parameters from the following report.
 
 For each parameter, return:
-- "name": the test name (e.g., "Hemoglobin", "HbA1c", "Cholesterol")
-- "value": the numeric value as a float
+- "name": the test name (e.g., "Hemoglobin", "HbA1c", "Cholesterol", "Urine Protein")
+- "value": the result value (can be a number like 14.5 or a string like "Nil", "Absent")
 - "unit": the unit of measurement (e.g., "mg/dL", "%", "g/dL")
 
 Return ONLY a valid JSON array of objects. If you cannot find any parameters, return an empty array [].
 """
 
-    # --- Stage 3.1: Try Gemini (multimodal) ---
-    try:
-        contents = []
-        if mime_type.startswith("image/") or mime_type == "application/pdf":
-            contents.append(genai_types.Part.from_bytes(data=file_bytes, mime_type=mime_type))
-            contents.append(prompt)
-        else:
-            text_data = file_bytes.decode('utf-8', errors='ignore')
-            contents.append(prompt + f"\n\nReport text:\n\"\"\"\n{text_data}\n\"\"\"")
+    # --- Stage 3.1: Try Gemini (multimodal) with quick retries ---
+    for attempt in range(2):
+        try:
+            contents = []
+            if mime_type.startswith("image/") or mime_type == "application/pdf":
+                contents.append(genai_types.Part.from_bytes(data=file_bytes, mime_type=mime_type))
+                contents.append(prompt)
+            else:
+                text_data = file_bytes.decode('utf-8', errors='ignore')
+                contents.append(prompt + f"\n\nReport text:\n\"\"\"\n{text_data}\n\"\"\"")
 
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=contents,
-            config=genai_types.GenerateContentConfig(
-                response_mime_type="application/json",
-            ),
-        )
-        params = json.loads(response.text)
-        if isinstance(params, list) and len(params) > 0:
-            return params
-    except Exception as e:
-        print(f"[ReportService] Gemini extraction failed: {e}")
+            response = client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=contents,
+                config=genai_types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                ),
+            )
+            params = json.loads(response.text)
+            if isinstance(params, list) and len(params) > 0:
+                return params
+        except Exception as e:
+            error_str = str(e)
+            if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                wait_time = 5 * (attempt + 1)
+                print(f"[ReportService] Gemini rate limited. Waiting {wait_time}s before fallback... (attempt {attempt+1}/2)")
+                time.sleep(wait_time)
+                continue
+            else:
+                print(f"[ReportService] Gemini extraction failed: {e}")
+                break
+    print("[ReportService] Gemini exhausted. Falling through to OCR.space + Groq...")
 
-    # --- Stage 3.2: Try Groq (text-only fallback) ---
+    # --- Stage 3.2: Try OCR.space + Groq (text-only fallback) ---
     if settings.GROQ_API_KEY:
-        print("[ReportService] Attempting Groq fallback...")
+        print("[ReportService] Attempting OCR.space + Groq fallback...")
         try:
             # For Groq, we MUST extract text locally since it can't "see" files
             text_data = ""
+
             if mime_type == "application/pdf":
+                # Step 1: Try local pypdf extraction (works for digital/text PDFs)
                 try:
                     pdf_reader = pypdf.PdfReader(io.BytesIO(file_bytes))
-                    text_data = "\n".join([page.extract_text() or "" for page in pdf_reader.pages])
+                    text_data = "\n".join([page.extract_text() or "" for page in pdf_reader.pages]).strip()
+                    print(f"[ReportService] pypdf extracted: {len(text_data)} chars")
                 except Exception as pdf_err:
-                    print(f"[ReportService] Local PDF text extraction failed: {pdf_err}")
+                    print(f"[ReportService] pypdf failed: {pdf_err}")
+
+                # Step 2: If pypdf got very little text, it's likely a scanned PDF → use OCR.space
+                if len(text_data) < 50:
+                    print("[ReportService] pypdf returned insufficient text. Trying OCR.space for scanned PDF...")
+                    ocr_text = _ocr_space_extract(file_bytes, mime_type)
+                    if ocr_text and len(ocr_text) > len(text_data):
+                        text_data = ocr_text
+
             elif mime_type.startswith("image/"):
-                try:
-                    print("[ReportService] Attempting native macOS OCR for image...")
-                    # Save image to a temporary file
-                    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-                        tmp.write(file_bytes)
-                        tmp_path = tmp.name
-                    
-                    # Run the Swift OCR utility
-                    swift_path = os.path.join(os.path.dirname(__file__), "..", "utils", "ocr.swift")
-                    result = subprocess.run(["swift", swift_path, tmp_path], capture_output=True, text=True)
-                    text_data = result.stdout.strip()
-                    
-                    # Cleanup
-                    os.unlink(tmp_path)
-                    
-                    if text_data:
-                        print(f"[ReportService] Local OCR successful. Extracted {len(text_data)} characters.")
-                except Exception as ocr_err:
-                    print(f"[ReportService] Native OCR bridge failed: {ocr_err}")
+                # Use OCR.space for cross-platform image text extraction
+                text_data = _ocr_space_extract(file_bytes, mime_type)
+                if not text_data:
+                    # Last resort: try native macOS OCR if on darwin
+                    if sys.platform == "darwin":
+                        try:
+                            print("[ReportService] Attempting native macOS OCR for image...")
+                            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                                tmp.write(file_bytes)
+                                tmp_path = tmp.name
+                            swift_path = os.path.join(os.path.dirname(__file__), "..", "utils", "ocr.swift")
+                            result = subprocess.run(["swift", swift_path, tmp_path], capture_output=True, text=True)
+                            text_data = result.stdout.strip()
+                            os.unlink(tmp_path)
+                            if text_data:
+                                print(f"[ReportService] Local OCR successful. Extracted {len(text_data)} characters.")
+                        except Exception as ocr_err:
+                            print(f"[ReportService] Native OCR bridge failed: {ocr_err}")
             else:
                 text_data = file_bytes.decode('utf-8', errors='ignore')
 
             if text_data:
-                enriched_prompt = prompt + f"\n\nHERE IS THE REPORT TEXT TO ANALYZE:\n\"\"\"\n{text_data}\n\"\"\""
+                print(f"[ReportService] Sending {len(text_data)} chars to Groq for parameter extraction...")
+                groq_prompt = f"""You are an expert medical lab report parser. Your goal is to carefully extract ALL laboratory test results from the noisy OCR text below.
+The text is from a scanned document, so it may contain typos, poor formatting, misaligned rows, or fragmented lines. You must intelligently piece together the test names, their numeric results, and units.
+
+For EACH parameter you find, return a JSON object with:
+- "name": the test name exactly as written (e.g., "Sr. Uric Acid", "Colour", "Deposits")
+- "value": the result value (can be a number like 6.74 or a string like "Nil", "Pale Yellow")
+- "unit": the unit of measurement (e.g., "mg/dL", "IU/ml", "g/dL")
+
+CRITICAL INSTRUCTIONS:
+1. Do NOT skip any parameters. Read the entire text block carefully.
+2. If the text is messy, look for numbers or strings (like "Nil", "Absent") that follow common test names.
+3. Return ONLY a valid JSON array and absolutely no other text. Example: [{{"name": "Urine Protein", "value": "Nil", "unit": "Absent"}}]
+
+HERE IS THE OCR REPORT TEXT:
+\"\"\"
+{text_data}
+\"\"\""""
                 
                 groq_client = Groq(api_key=settings.GROQ_API_KEY)
                 groq_response = groq_client.chat.completions.create(
                     model="llama-3.3-70b-versatile",
-                    messages=[{"role": "system", "content": "You are a helpful assistant that outputs only valid JSON arrays."}, 
-                              {"role": "user", "content": enriched_prompt}],
+                    messages=[{"role": "system", "content": "You are a medical report data extractor. Output ONLY valid JSON arrays, no markdown, no explanation."}, 
+                              {"role": "user", "content": groq_prompt}],
                     temperature=0.1,
                 )
                 groq_text = groq_response.choices[0].message.content
+                print(f"[ReportService] Groq raw response: {groq_text[:300]}")
                 start_idx = groq_text.find('[')
                 end_idx = groq_text.rfind(']')
                 if start_idx != -1 and end_idx != -1:
                     groq_data = json.loads(groq_text[start_idx:end_idx+1])
                     if isinstance(groq_data, list) and len(groq_data) > 0:
+                        print(f"[ReportService] Groq extracted {len(groq_data)} parameters successfully!")
                         return groq_data
+                    else:
+                        print("[ReportService] Groq returned empty parameter list.")
+                else:
+                    print("[ReportService] Groq response did not contain a JSON array.")
             else:
-                print("[ReportService] Groq fallback skipped: No text content available (images require Gemini OCR).")
+                print("[ReportService] No text could be extracted from the file. All OCR methods failed.")
 
         except Exception as groq_err:
             print(f"[ReportService] Groq fallback failed: {groq_err}")
+    else:
+        print("[ReportService] No GROQ_API_KEY configured, skipping fallback.")
 
     # If everything fails, return an empty list
+    print("[ReportService] ALL extraction methods failed. Returning empty parameters.")
     return []
 
 
@@ -258,13 +418,19 @@ def _process_report_async(report_id: str, file_bytes: bytes, mime_type: str):
     Updates _report_store as it progresses.
     """
     try:
+        # Check for cancellation at each stage
+        def _is_cancelled():
+            return _report_store.get(report_id, {}).get("status") == "cancelled"
+
         # Stage 1 & 2 — Ingest (already done by upload endpoint)
         _report_store[report_id]["progress_pct"] = 10
-        time.sleep(0.3)
+        time.sleep(0.2)
+        if _is_cancelled(): return
 
         # Stage 3 — Parse: extract parameters
         _report_store[report_id]["progress_pct"] = 40
         raw_params = _extract_parameters_with_llm(file_bytes, mime_type)
+        if _is_cancelled(): return
         
         # Final Rule-based Fallback if AI finds nothing
         if not raw_params:
@@ -288,6 +454,17 @@ def _process_report_async(report_id: str, file_bytes: bytes, mime_type: str):
         _report_store[report_id]["progress_pct"] = 60
         parameters = []
         for p in raw_params:
+            # Skip invalid parameters returned by LLM (e.g. null values)
+            val = p.get("value")
+            if val is None:
+                continue
+            
+            try:
+                p["value"] = float(val)
+            except (ValueError, TypeError):
+                # Keep as string for non-numeric results (like 'Nil', 'Clear')
+                p["value"] = str(val).strip()
+                
             ref_range, ref_unit = _get_reference(p["name"])
             if ref_range is None:
                 ref_range = (0, 0)
@@ -335,8 +512,9 @@ def _process_report_async(report_id: str, file_bytes: bytes, mime_type: str):
             "parameters": parameters,
             "summary": summary,
             "recommendation": sanitized_rec,
-            "home_remedies": rec_data["home_remedies"],
-            "action_plan": rec_data["action_plan"],
+            "home_remedies": rec_data.get("home_remedies", []),
+            "action_plan": rec_data.get("action_plan", []),
+            "health_risks": rec_data.get("health_risks", []),
         })
 
     except Exception as e:
@@ -366,3 +544,17 @@ def start_report_processing(report_id: str, file_bytes: bytes, mime_type: str):
 def get_report_status(report_id: str) -> Optional[dict]:
     """Retrieve the current state of a report from the in-memory store."""
     return _report_store.get(report_id)
+
+
+def cancel_report(report_id: str) -> bool:
+    """Cancel an in-progress report. Returns True if cancelled, False if not found/already done."""
+    report = _report_store.get(report_id)
+    if report is None:
+        return False
+    if report["status"] in ("complete", "failed", "cancelled"):
+        return False
+    report["status"] = "cancelled"
+    report["progress_pct"] = 0
+    report["summary"] = "Analysis cancelled by user."
+    print(f"[ReportService] Report {report_id} cancelled by user.")
+    return True
